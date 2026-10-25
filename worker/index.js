@@ -5,8 +5,13 @@ const LIMIT = 40, WINDOW = 10 * 60 * 1000;
 
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' } });
 const clip = (s, n) => String(s ?? '').slice(0, n);
+function cleanText(t) {
+  return String(t || '').replace(/^\s*("{3}|`{3}[a-z]*)\s*\n?/, '').replace(/\n?\s*("{3}|`{3})\s*$/, '').replace(/^"{3}.*$/gm, '')
+    .replace(/(^|[.!?]\s+|\n)Anda\b/g, '$1Kamu').replace(/\bAnda\b/g, 'kamu').replace(/\bkepada Kamu\b/g, 'kepada kamu').trim();
+}
 
-const SYS = `Kamu asisten penulis & editor konten YouTube berbahasa Indonesia. Gaya bahasa santai tapi tetap menghargai penonton, tidak kaku, tidak terlalu gaul. Prioritaskan orisinalitas, sudut pandang kritis, dan kejujuran: jangan pernah mengarang fakta, angka, tahun, kutipan, atau nama sumber.`;
+const SYS = `Kamu asisten penulis & editor konten YouTube berbahasa Indonesia. Gaya bahasa santai tapi tetap menghargai penonton, tidak kaku, tidak terlalu gaul. Prioritaskan orisinalitas, sudut pandang kritis, dan kejujuran: jangan pernah mengarang fakta, angka, tahun, kutipan, atau nama sumber.
+Sapa penonton dengan "kamu" (JANGAN "Anda"). Nada analitis dan kritis, bukan promosi: dilarang memuja atau mempromosikan merek, produk, atau tokoh (hindari kata/kesan seperti "ikonik", "legendaris", "daya tarik yang kuat", "luar biasa", ajakan membeli). Fokus pada proses, kerja keras di balik layar, keputusan, biaya, risiko, dan trade-off, termasuk sisi gelap atau kritiknya.`;
 
 const TASKS = {
   ideas: {
@@ -17,6 +22,7 @@ const TASKS = {
 Buat TEPAT 15 ide video YouTube yang berbeda sudut pandang untuk topik di atas. Syarat:
 - Orisinal dan transformatif (analisis, opini, cek fakta, perbandingan, konteks) — bukan rangkuman generik atau daftar "10 fakta".
 - Judul menarik tapi TIDAK boleh menyatakan fakta spesifik yang tidak pasti (angka, tahun, "laporan rahasia", dll.).
+- Hindari framing promosi / pemujaan merek atau tokoh; utamakan bedah proses, kerja keras, keputusan, trade-off, dan kritik.
 - "desc": 1-2 kalimat berisi apa yang dibahas dan nilai tambah / opini pembuatnya.
 - "type": 2-3 kata (mis. "Cek Fakta", "Psikologi Massa").
 - "badge": satu dari ["Transformatif","Data-driven","Storytelling","Kritis","Edukasi","Unik","High Retention"].
@@ -40,7 +46,10 @@ Aturan wajib:
 2. Hook 10 detik pertama berupa pertanyaan atau klaim kontras. DILARANG pembuka klise: "Tahukah kamu", "Di video kali ini", "Halo guys", "Jangan lupa like/subscribe".
 3. Sisipkan minimal 2 opini pribadi (mis. "Menurut analisis saya...") dan 1-2 jeda napas "[Jeda 1.5s]".
 4. JANGAN mengarang fakta. Setiap data spesifik (angka, tahun, nama dokumen/studi/sumber, kutipan) ditulis sebagai placeholder {{isi: data apa yang harus dicari penulis}}. Pernyataan umum yang pasti benar boleh ditulis langsung.
-5. Variasikan panjang dan awalan kalimat. Akhiri dengan pertanyaan yang mengajak penonton berdiskusi.
+5. Variasikan panjang dan awalan kalimat.
+6. Tentukan SATU tesis / pesan inti video di awal, lalu semua bagian harus mendukungnya. Sertakan minimal satu sanggahan atau sisi kritis (biaya, risiko, kontroversi, atau kelemahan argumenmu sendiri).
+7. Penutup: rangkum temuan inti dalam 1-2 kalimat yang spesifik pada tesis (bukan pujian umum terhadap topik atau merek), lalu ajukan SATU pertanyaan diskusi yang tajam dan spesifik (mis. soal dilema, trade-off, atau pelajaran yang bisa dipakai penonton). DILARANG penutup ala iklan: tanpa kata "daya tarik", "ikonik", "kita bisa memahami lebih baik", dan tanpa pertanyaan generik "apa yang membuatmu tertarik".
+8. Jangan memakai tanda kutip tiga (\"\"\") atau blok kode.
 Balas HANYA naskahnya, tanpa pembuka atau penutup dari kamu.` };
     }
   },
@@ -57,7 +66,7 @@ Balas HANYA JSON valid dengan jumlah elemen sama persis: {"scenes":[{"visual":""
   review: {
     json: true, max: 2200, temp: 0.4,
     build: (b) => ({
-      user: `Review naskah YouTube berikut sebagai editor kritis. Nilai orisinalitas, kekuatan hook, kedalaman analisis, kejelasan bukti, repetisi/klise bot, dan ajakan diskusi.
+      user: `Review naskah YouTube berikut sebagai editor kritis. Nilai orisinalitas, kekuatan hook, kedalaman analisis, kejelasan bukti, repetisi/klise bot, ajakan diskusi, dan apakah nadanya terdengar seperti iklan / pemujaan (jika ya, jadikan issue dengan fix yang lebih kritis).
 Metrik otomatis: ${clip(b.metrics, 400)}
 
 NASKAH:
@@ -127,7 +136,7 @@ export default {
 
     try {
       let raw = await runAI(env, t, body);
-      if (!t.json) return json({ ok: true, data: { text: raw.trim().replace(/^```[a-z]*\n?|```$/g, '').trim() } });
+      if (!t.json) return json({ ok: true, data: { text: cleanText(raw) } });
       try { return json({ ok: true, data: extractJSON(raw) }); } catch {
         raw = await runAI(env, t, body); // coba sekali lagi
         return json({ ok: true, data: extractJSON(raw) });

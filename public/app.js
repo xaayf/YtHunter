@@ -247,7 +247,7 @@ function csvEscape(v) { v = String(v ?? ''); return /[",\n;]/.test(v) ? '"' + v.
 function uid() { return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4); }
 
 /* ===== YT Hunter — UI ===== */
-const APP_VERSION = '21414420';
+const APP_VERSION = 'c66a2ef9';
 const KEY = 'ythunter:v1';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -815,7 +815,7 @@ function genSheet(preset = {}) {
       <div><label class="label">Gaya tutur</label><select id="g_tone" class="input">${opt(TONES, 'investigative')}</select></div>
     </div>
     <div><label class="label">Durasi target</label><select id="g_min" class="input"><option value="3">±3 menit</option><option value="5" selected>±5 menit</option><option value="8">±8 menit</option></select></div>
-    <div><label class="label">Arahan tambahan (opsional)</label><textarea id="g_notes" rows="2" class="input" placeholder="Mis. fokus pada kasus di Indonesia, hindari istilah teknis"></textarea></div>`, [
+    <div><label class="label">Arahan tambahan (opsional)</label><textarea id="g_notes" rows="2" class="input" placeholder="Mis. bedah proses & kerja keras di baliknya, bukan promosi; sertakan sisi kritisnya"></textarea></div>`, [
     { label: 'Batal' },
     { label: 'Tulis Naskah', cls: 'btn-primary', fn: () => {
       const topic = val('g_topic').trim(); if (!topic) { toast('Isi topik dulu'); return false; }

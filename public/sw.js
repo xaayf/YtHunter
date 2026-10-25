@@ -1,6 +1,6 @@
-const VERSION = '21414420';
+const VERSION = 'c66a2ef9';
 const CACHE = 'ythunter-' + VERSION;
-const FILES = ["./","index.html","app.css?v=21414420","app.js?v=21414420","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/apple-touch-icon.png","icons/favicon-32.png"];
+const FILES = ["./","index.html","app.css?v=c66a2ef9","app.js?v=c66a2ef9","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/apple-touch-icon.png","icons/favicon-32.png"];
 
 self.addEventListener('install', (e) => {
   // Tidak skipWaiting otomatis: user yang menekan "Perbarui" supaya tidak ada reload mendadak.
