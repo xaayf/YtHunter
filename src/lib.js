@@ -65,7 +65,7 @@ function scenesFromScript(text, wpm) {
     if (w === 0 && type === 'Transisi' && scenes.length) { scenes[scenes.length - 1].end += dur; t += dur; continue; }
     if (w === 0 && dur === 0) continue;
     const dMin = Math.max(dur, 3);
-    scenes.push({ id: uid(), title: cleanSectionName(s.name), type, start: t, end: t + dMin, visual: '', audio: '', motion: '', src: s.body.slice(0, 320) });
+    scenes.push({ id: uid(), title: cleanSectionName(s.name), type, start: t, end: t + dMin, visual: '', audio: '', motion: '', src: s.body.slice(0, 1500), shots: [] });
     t += dMin;
   }
   return scenes;
@@ -199,6 +199,7 @@ function finalAudit(project, wpm) {
     const diff = an.totalSec ? Math.abs(end - an.totalSec) / an.totalSec : 0;
     c(diff > 0.25 ? 1 : 0, diff > 0.25 ? `Durasi storyboard (${fmtTime(end)}) beda jauh dari naskah (${fmtTime(an.totalSec)})` : 'Durasi storyboard selaras dengan naskah', '');
   }
+  if (sc.length) { const np = sc.filter((s) => !(s.shots && s.shots.length)).length; c(np ? 1 : 0, np ? `${np} scene belum punya prompt visual` : 'Semua scene punya prompt visual', ''); }
   const as = (project.assets || []).map((a) => ({ a, r: assessAsset(a) }));
   if (!as.length) c(1, 'Belum ada aset yang diaudit', 'Tambahkan klip / gambar / audio yang dipakai.');
   else {

@@ -15,7 +15,7 @@
 <meta name="apple-mobile-web-app-title" content="YT Hunter">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="format-detection" content="telephone=no">
-<link rel="stylesheet" href="app.css?v=c66a2ef9">
+<link rel="stylesheet" href="app.css?v=6f923c4f">
 </head>
 <body>
 <svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true"><symbol id="i-shield-check" viewBox="0 0 24 24"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
@@ -129,13 +129,15 @@
     <section id="view-2" class="view scroll hidden"></section>
     <section id="view-3" class="view scroll hidden"></section>
     <section id="view-4" class="view scroll hidden"></section>
+    <section id="view-5" class="view scroll hidden"></section>
   </main>
 
   <!-- Bottom nav: glass -->
-  <nav class="glass-bar fixed bottom-0 inset-x-0 z-30 grid grid-cols-4" style="padding-bottom:var(--sab);border-top:1px solid rgba(255,255,255,.08);border-bottom:0">
+  <nav class="glass-bar fixed bottom-0 inset-x-0 z-30 grid grid-cols-5" style="padding-bottom:var(--sab);border-top:1px solid rgba(255,255,255,.08);border-bottom:0">
     <button data-act="mod" data-n="1" id="tab-1" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-compass"/></svg>Launchpad</button>
     <button data-act="mod" data-n="2" id="tab-2" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-file-pen-line"/></svg>Skrip</button>
-    <button data-act="mod" data-n="3" id="tab-3" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-shield-alert"/></svg>AI Guard</button>
+    <button data-act="mod" data-n="5" id="tab-5" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-film"/></svg>Prompt</button>
+    <button data-act="mod" data-n="3" id="tab-3" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-shield-alert"/></svg>Guard</button>
     <button data-act="mod" data-n="4" id="tab-4" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-layers"/></svg>Aset</button>
   </nav>
 </div>
@@ -151,6 +153,6 @@
 </div>
 
 <input type="file" id="importFile" accept="application/json,.json" class="hidden">
-<script src="app.js?v=c66a2ef9"></script>
+<script src="app.js?v=6f923c4f"></script>
 </body>
 </html>

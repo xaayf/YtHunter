@@ -66,7 +66,7 @@ function scenesFromScript(text, wpm) {
     if (w === 0 && type === 'Transisi' && scenes.length) { scenes[scenes.length - 1].end += dur; t += dur; continue; }
     if (w === 0 && dur === 0) continue;
     const dMin = Math.max(dur, 3);
-    scenes.push({ id: uid(), title: cleanSectionName(s.name), type, start: t, end: t + dMin, visual: '', audio: '', motion: '', src: s.body.slice(0, 320) });
+    scenes.push({ id: uid(), title: cleanSectionName(s.name), type, start: t, end: t + dMin, visual: '', audio: '', motion: '', src: s.body.slice(0, 1500), shots: [] });
     t += dMin;
   }
   return scenes;
@@ -200,6 +200,7 @@ function finalAudit(project, wpm) {
     const diff = an.totalSec ? Math.abs(end - an.totalSec) / an.totalSec : 0;
     c(diff > 0.25 ? 1 : 0, diff > 0.25 ? `Durasi storyboard (${fmtTime(end)}) beda jauh dari naskah (${fmtTime(an.totalSec)})` : 'Durasi storyboard selaras dengan naskah', '');
   }
+  if (sc.length) { const np = sc.filter((s) => !(s.shots && s.shots.length)).length; c(np ? 1 : 0, np ? `${np} scene belum punya prompt visual` : 'Semua scene punya prompt visual', ''); }
   const as = (project.assets || []).map((a) => ({ a, r: assessAsset(a) }));
   if (!as.length) c(1, 'Belum ada aset yang diaudit', 'Tambahkan klip / gambar / audio yang dipakai.');
   else {
@@ -247,7 +248,7 @@ function csvEscape(v) { v = String(v ?? ''); return /[",\n;]/.test(v) ? '"' + v.
 function uid() { return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4); }
 
 /* ===== YT Hunter — UI ===== */
-const APP_VERSION = 'c66a2ef9';
+const APP_VERSION = '6f923c4f';
 const KEY = 'ythunter:v1';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -260,10 +261,13 @@ let mod = 1;              // launchpad dulu
 let scriptTab = 'naskah';
 let ideaFilter = 'all';
 let memStore = null;
-const busy = { ideas: false, review: false, scenes: false };
+const busy = { ideas: false, review: false, scenes: false, style: false, prompts: null };
+const openScenes = new Set();
+const PIN_KEY = 'ythunter:pin';
+let gemini = false, viaNoted = false;
 
 function blankProject(title = 'Proyek Baru', topic = '') {
-  return { id: uid(), title, topic, script: '', ideas: [], scenes: [], assets: [], lastAudit: null, review: null, createdAt: Date.now(), updatedAt: Date.now() };
+  return { id: uid(), title, topic, script: '', ideas: [], scenes: [], assets: [], lastAudit: null, review: null, styleBible: '', promptLang: 'en', createdAt: Date.now(), updatedAt: Date.now() };
 }
 function load() {
   let raw = null;
@@ -275,7 +279,7 @@ function load() {
         S = d; if (!S.wpm) S.wpm = 130;
         // buang proyek contoh bawaan versi lama (template) bila tak pernah disentuh
         S.projects = S.projects.filter((p) => !(p.title === 'Misteri Segitiga Bermuda' && p.assets && p.assets[0] && p.assets[0].name === 'Laut badai (footage stok)'));
-        S.projects.forEach((p) => { p.ideas = (p.ideas || []).filter((i) => i.ai); p.review = p.review || null; (p.scenes || []).forEach((s) => { if (s.src === undefined) s.src = ''; }); });
+        S.projects.forEach((p) => { p.ideas = (p.ideas || []).filter((i) => i.ai); p.review = p.review || null; p.styleBible = p.styleBible || ''; p.promptLang = p.promptLang || 'en'; (p.scenes || []).forEach((s) => { if (s.src === undefined) s.src = ''; if (!s.shots) s.shots = []; }); });
         if (!S.projects.length) S.projects.push(blankProject());
         if (!S.projects.find((p) => p.id === S.activeId)) S.activeId = S.projects[0].id;
         return;
@@ -302,11 +306,16 @@ async function ai(task, payload = {}) {
   if (!navigator.onLine) throw new Error('Fitur AI butuh internet.');
   const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 100000);
   let r;
-  try { r = await fetch('/api/ai', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ task, ...payload }), signal: ctrl.signal }); }
+  let pin = ''; try { pin = localStorage.getItem(PIN_KEY) || ''; } catch (e) { /* abaikan */ }
+  try { r = await fetch('/api/ai', { method: 'POST', headers: { 'content-type': 'application/json', 'x-app-pin': pin }, body: JSON.stringify({ task, ...payload }), signal: ctrl.signal }); }
   catch (e) { throw new Error(e.name === 'AbortError' ? 'AI terlalu lama merespons, coba lagi.' : 'Tidak bisa terhubung ke AI.'); }
   finally { clearTimeout(to); }
   let j = null; try { j = await r.json(); } catch (e) { /* abaikan */ }
-  if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || `AI error (${r.status})`);
+  if (!r.ok || !j || !j.ok) {
+    if (j && j.code === 'pin' && r.status === 401) setTimeout(pinSheet, 450);
+    throw new Error((j && j.error) || `AI error (${r.status})`);
+  }
+  if (j.via === 'workers-ai' && gemini && !viaNoted) { viaNoted = true; setTimeout(() => toast('Gemini sedang penuh — memakai cadangan Workers AI'), 300); }
   return j.data;
 }
 const metricsLine = (an) => `skor ${an.score}%, ${an.nWords} kata, opini ${an.opinions}, pertanyaan ${an.questions}, jeda ${an.pauses.n}, klise [${an.cliches.join('; ')}], placeholder ${an.placeholders}`;
@@ -374,14 +383,14 @@ document.addEventListener('click', (e) => {
 function switchModule(n) {
   stopPacing();
   mod = n;
-  for (let i = 1; i <= 4; i++) {
+  for (let i = 1; i <= 5; i++) {
     $('#view-' + i).classList.toggle('hidden', i !== n);
     $('#tab-' + i).className = 'py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold ' + (i === n ? 'text-brand-400' : 'text-slate-500');
   }
   render();
   $('#view-' + n).scrollTop = 0;
 }
-function render() { [null, render1, render2, render3, render4][mod](); }
+function render() { [null, render1, render2, render3, render4, render5][mod](); }
 const projectBar = () => `<button data-act="projects" class="glass-btn w-full flex items-center justify-between gap-2 px-3.5 py-2 text-left"><span class="min-w-0"><span class="block text-[10px] uppercase tracking-wider text-slate-500 font-bold">Proyek</span><span class="block text-xs font-semibold text-white truncate">${esc(P().title || 'Tanpa judul')}</span></span>${ic('chevron-down', 'w-4 h-4 text-slate-400')}</button>`;
 
 /* ---------- Modul 1: Launchpad ---------- */
@@ -389,8 +398,8 @@ function render1() {
   const p = P();
   const an = analyze(p.script, S.wpm);
   const risky = p.assets.filter((a) => assessAsset(a).lvl === 2).length;
-  const tile = (act, extra, icon, label, val, sub, col) => `
-    <button data-act="${act}" ${extra} class="card p-3.5 text-left active:scale-[.97] transition space-y-1.5">
+  const tile = (act, extra, icon, label, val, sub, col, span = '') => `
+    <button data-act="${act}" ${extra} class="${span} card p-3.5 text-left active:scale-[.97] transition space-y-1.5">
       <span class="w-8 h-8 rounded-xl ${col} flex items-center justify-center">${ic(icon, 'w-4 h-4')}</span>
       <span class="block text-[11px] text-slate-400 font-semibold">${label}</span>
       <span class="block text-base font-bold text-white leading-tight">${val}</span>
@@ -404,7 +413,7 @@ function render1() {
       <div class="relative space-y-3">
         <span class="chip bg-white/10 text-brand-300 border border-white/15">${ic('sparkles', 'w-3 h-3 mr-1')} Ditenagai AI</span>
         <h1 class="text-[22px] leading-tight font-extrabold text-white">Dari ide sampai audit,<br>konten YouTube yang orisinal.</h1>
-        <p class="text-xs text-slate-300 leading-relaxed">Tulis topik, AI mencarikan 15 sudut pandang, menulis kerangka naskah, merancang storyboard, lalu mereview-nya.</p>
+        <p class="text-xs text-slate-300 leading-relaxed">Tulis topik: AI mencarikan ide, menulis naskah, merancang storyboard, menyusun prompt visual tiap scene, lalu mereview-nya.</p>
         <div class="space-y-2">
           <input id="topicIn" class="input" value="${esc(p.topic)}" placeholder="Mau bikin video tentang apa?" enterkeyhint="go" autocomplete="off">
           <button data-act="genIdeas" class="btn-primary w-full !py-3 !text-sm" ${busy.ideas ? 'disabled' : ''}>${busy.ideas ? spin() + ' AI mencari ide…' : ic('sparkles', 'w-4 h-4') + ' Cari 15 ide dengan AI'}</button>
@@ -416,8 +425,9 @@ function render1() {
     <div class="grid grid-cols-2 gap-3">
       ${tile('mod', 'data-n="2"', 'file-pen-line', 'Naskah', p.script.trim() ? `${an.nWords} kata` : 'Kosong', p.script.trim() ? `Durasi ${fmtTime(an.totalSec)}` : 'Buat dengan AI', 'bg-brand-500/25 text-brand-300')}
       ${tile('toStoryTile', '', 'clapperboard', 'Storyboard', `${p.scenes.length} scene`, p.scenes.length ? `${p.scenes.filter((s) => s.visual).length} punya visual` : 'Dari naskah', 'bg-indigo-500/25 text-indigo-300')}
+      ${tile('mod', 'data-n="5"', 'film', 'Prompt Visual', `${p.scenes.reduce((a, x) => a + (x.shots ? x.shots.length : 0), 0)} shot`, p.scenes.length ? `${p.scenes.filter((x) => x.shots && x.shots.length).length}/${p.scenes.length} scene siap` : 'Setelah storyboard', 'bg-fuchsia-500/25 text-fuchsia-300')}
       ${tile('mod', 'data-n="3"', 'shield-alert', 'AI Guard', p.script.trim() ? an.score + '%' : '—', p.script.trim() ? `Risiko bot ${an.botRisk}%` : 'Skor orisinalitas', 'bg-emerald-500/25 text-emerald-300')}
-      ${tile('mod', 'data-n="4"', 'layers', 'Aset', `${p.assets.length} aset`, risky ? `${risky} berisiko` : 'Audit lisensi', 'bg-amber-500/25 text-amber-300')}
+      ${tile('mod', 'data-n="4"', 'layers', 'Aset', `${p.assets.length} aset`, risky ? `${risky} berisiko` : 'Audit lisensi', 'bg-amber-500/25 text-amber-300', 'col-span-2')}
     </div>
 
     ${(p.ideas.length || busy.ideas) ? `
@@ -544,7 +554,7 @@ function storyPanel(p) {
     </div>
     <div class="flex justify-between pt-1">
       <button data-act="stab" data-t="naskah" class="btn-ghost">${ic('arrow-left', 'w-3.5 h-3.5')} Naskah</button>
-      <button data-act="mod" data-n="3" class="btn-primary">AI Guard ${ic('arrow-right', 'w-3.5 h-3.5')}</button>
+      <button data-act="mod" data-n="5" class="btn-primary">Prompt Visual ${ic('arrow-right', 'w-3.5 h-3.5')}</button>
     </div>`;
 }
 
@@ -640,7 +650,7 @@ function render3() {
       </div>
       <button id="btnPlay" data-act="play" class="btn-ghost w-full text-cyan-300">${ic('play', 'w-3.5 h-3.5')} Putar simulasi suara (${S.wpm} WPM)</button>
     </div>
-    <div class="flex justify-between"><button data-act="mod" data-n="2" class="btn-ghost">${ic('arrow-left', 'w-3.5 h-3.5')} Skrip</button><button data-act="mod" data-n="4" class="btn-primary">Aset ${ic('arrow-right', 'w-3.5 h-3.5')}</button></div>
+    <div class="flex justify-between"><button data-act="mod" data-n="5" class="btn-ghost">${ic('arrow-left', 'w-3.5 h-3.5')} Prompt</button><button data-act="mod" data-n="4" class="btn-primary">Aset ${ic('arrow-right', 'w-3.5 h-3.5')}</button></div>
   </div>`;
 }
 function stopPacing() {
@@ -672,6 +682,97 @@ function playPacing() {
     } else pacing.timer = setTimeout(() => step(i + 1), dur);
   };
   step(0);
+}
+
+/* ---------- Modul 5: Prompt Visual ---------- */
+const shotRange = (s, i, n) => { const d = (s.end - s.start) / n; return [s.start + i * d, s.start + (i + 1) * d]; };
+const shotCount = (s) => clamp(Math.round((s.end - s.start) / 6), 1, 12);
+function render5() {
+  const p = P();
+  const total = p.scenes.reduce((a, s) => a + (s.shots ? s.shots.length : 0), 0);
+  const ready = p.scenes.filter((s) => s.shots && s.shots.length).length;
+  const bp = busy.prompts;
+  const lang = (k, l) => `<button data-act="lang" data-l="${k}" class="flex-1 py-1.5 rounded-lg text-[11px] font-semibold ${p.promptLang === k ? 'bg-brand-600/30 text-brand-300 border border-brand-500/40' : 'text-slate-400'}">${l}</button>`;
+  $('#view-5').innerHTML = `
+  <div class="max-w-5xl mx-auto px-4 space-y-3">
+    ${projectBar()}
+    <div>
+      <h2 class="text-base font-bold text-white flex items-center gap-2">${ic('film', 'w-5 h-5 text-brand-400')} Prompt Visual</h2>
+      <p class="text-xs text-slate-400 mt-0.5">Tiap scene dipecah jadi shot ±6 detik, lengkap dengan prompt gambar (Nano Banana) dan video (Flow / Veo).</p>
+    </div>
+    <div class="card p-3.5 space-y-2.5">
+      <div class="flex items-center justify-between gap-2">
+        <div><h3 class="text-xs font-bold text-white">Style Bible</h3><p class="text-[11px] text-slate-400">Disisipkan ke semua prompt agar visual konsisten.</p></div>
+        <button data-act="genStyle" class="btn-ghost shrink-0" ${busy.style ? 'disabled' : ''}>${busy.style ? spin('w-3.5 h-3.5') + ' Membuat…' : ic('sparkles', 'w-3.5 h-3.5') + (p.styleBible ? ' Buat ulang' : ' Buat dengan AI')}</button>
+      </div>
+      <textarea id="styleIn" rows="4" class="input !text-[14px] leading-relaxed" placeholder="Contoh: cinematic documentary photography, muted teal-and-amber palette, soft overcast light, 35mm film grain, 16:9. Avoid: logos, brand names, readable text, real people's likeness.">${esc(p.styleBible)}</textarea>
+      <div class="flex items-center gap-2"><span class="text-[11px] text-slate-400 shrink-0">Bahasa prompt</span><div class="glass rounded-xl p-1 flex gap-1 flex-1">${lang('en', 'English (disarankan)')}${lang('id', 'Indonesia')}</div></div>
+    </div>
+    ${p.scenes.length ? `
+    <div class="flex items-center justify-between gap-2">
+      <span class="text-[11px] text-slate-400 font-mono">${ready}/${p.scenes.length} scene • ${total} shot</span>
+      <div class="flex gap-1.5">
+        ${total ? `<button data-act="copyAllPrompts" class="btn-ghost !px-2.5">${ic('copy', 'w-3.5 h-3.5')} Salin</button><button data-act="dlPrompts" class="btn-ghost !px-2.5">${ic('download', 'w-3.5 h-3.5')} CSV</button>` : ''}
+      </div>
+    </div>
+    ${bp ? `<button data-act="cancelPrompts" class="btn-warn w-full">${spin('w-3.5 h-3.5')} Menyusun prompt ${bp.done}/${bp.total}… (ketuk untuk berhenti)</button>`
+      : `<button data-act="genAllShots" class="btn-primary w-full !py-2.5">${ic('sparkles', 'w-4 h-4')} ${ready === p.scenes.length ? 'Buat ulang semua prompt' : ready ? `Lengkapi ${p.scenes.length - ready} scene yang kosong` : 'Buat prompt semua scene'}</button>`}
+    <div class="space-y-2.5">
+      ${p.scenes.map((s, si) => {
+        const n = s.shots ? s.shots.length : 0; const open = openScenes.has(s.id);
+        const working = bp && bp.current === s.id;
+        return `<div class="card p-3 space-y-2.5">
+          <div class="flex items-center gap-2">
+            <button data-act="toggleScene" data-id="${s.id}" class="flex-1 min-w-0 flex items-center gap-2 text-left">
+              <span class="w-8 h-8 rounded-xl bg-gradient-to-br ${SCOL[s.type] || SCOL.Isi} flex items-center justify-center shrink-0 text-white/90">${ic(SICN[s.type] || 'image', 'w-4 h-4')}</span>
+              <span class="min-w-0"><span class="block text-xs font-bold text-white truncate">${si + 1}. ${esc(s.title)}</span><span class="block text-[10px] text-slate-500 font-mono">${fmtTime(s.start)}–${fmtTime(s.end)} • ${n ? n + ' shot' : 'belum ada prompt'}</span></span>
+              ${n ? ic('chevron-down', 'w-4 h-4 text-slate-500 shrink-0 ml-auto ' + (open ? 'rotate-180' : '')) : ''}
+            </button>
+            <button data-act="genShots" data-id="${s.id}" class="btn-ghost !px-2.5 shrink-0" ${bp ? 'disabled' : ''}>${working ? spin('w-3.5 h-3.5') : ic('sparkles', 'w-3.5 h-3.5')} ${n ? 'Ulangi' : 'Buat'}</button>
+          </div>
+          ${open && n ? s.shots.map((sh, i) => { const [a, b] = shotRange(s, i, n); return `
+          <div class="rounded-xl bg-black/25 border border-white/10 p-2.5 space-y-2">
+            <div class="flex items-center justify-between"><span class="text-[11px] font-bold text-white">Shot ${si + 1}.${i + 1} <span class="text-slate-500 font-mono font-normal">${fmtTime(a)}–${fmtTime(b)}</span></span><button data-act="shotEdit" data-id="${s.id}" data-i="${i}" class="p-1 text-slate-400" aria-label="Edit">${ic('pencil', 'w-3.5 h-3.5')}</button></div>
+            <div class="space-y-1"><div class="flex items-center justify-between"><span class="text-[10px] font-bold uppercase tracking-wider text-fuchsia-300">Gambar · Nano Banana</span><button data-act="copyShot" data-id="${s.id}" data-i="${i}" data-k="image" class="text-[11px] text-brand-300 font-semibold flex items-center gap-1">${ic('copy', 'w-3 h-3')} Salin</button></div><p class="text-[12px] text-slate-200 leading-relaxed">${esc(sh.image)}</p></div>
+            <div class="space-y-1"><div class="flex items-center justify-between"><span class="text-[10px] font-bold uppercase tracking-wider text-cyan-300">Video · Flow / Veo</span><button data-act="copyShot" data-id="${s.id}" data-i="${i}" data-k="video" class="text-[11px] text-brand-300 font-semibold flex items-center gap-1">${ic('copy', 'w-3 h-3')} Salin</button></div><p class="text-[12px] text-slate-200 leading-relaxed">${esc(sh.video)}</p></div>
+            ${sh.overlay || sh.sfx ? `<div class="text-[10px] text-slate-400 space-y-0.5">${sh.overlay ? `<div>${ic('file-text', 'w-3 h-3 inline -mt-0.5')} Teks layar: <span class="text-slate-300">${esc(sh.overlay)}</span></div>` : ''}${sh.sfx ? `<div>${ic('volume-2', 'w-3 h-3 inline -mt-0.5')} ${esc(sh.sfx)}</div>` : ''}</div>` : ''}
+          </div>`; }).join('') : ''}
+        </div>`; }).join('')}
+    </div>` : `<div class="card p-6 text-center text-xs text-slate-500 space-y-3"><p>Belum ada scene. Buat storyboard dari naskah dulu.</p><button data-act="toStoryTile" class="btn-primary">${ic('clapperboard', 'w-3.5 h-3.5')} Ke Storyboard</button></div>`}
+    <div class="flex justify-between"><button data-act="toStoryTile" class="btn-ghost">${ic('arrow-left', 'w-3.5 h-3.5')} Storyboard</button><button data-act="mod" data-n="3" class="btn-primary">AI Guard ${ic('arrow-right', 'w-3.5 h-3.5')}</button></div>
+  </div>`;
+  const st = $('#styleIn'); st.addEventListener('input', () => { P().styleBible = st.value; save(); });
+}
+async function genStyle(p) {
+  busy.style = true; if (mod === 5) render();
+  try {
+    const d = await ai('style', { topic: p.topic || p.title, title: p.title, tone: TONES.investigative, script: p.script });
+    if (!d.text || d.text.length < 30) throw new Error('Style bible kosong, coba lagi.');
+    p.styleBible = d.text; save(true);
+  } finally { busy.style = false; if (mod === 5) render(); }
+}
+async function genShots(p, sc) {
+  const count = shotCount(sc);
+  const d = await ai('shots', { title: sc.title, type: sc.type, duration: sc.end - sc.start, count, text: sc.src || sc.visual || sc.title, style: p.styleBible, lang: p.promptLang });
+  const arr = Array.isArray(d && d.shots) ? d.shots.filter((x) => x && x.image && x.video) : [];
+  if (!arr.length) throw new Error('AI tidak mengembalikan prompt, coba lagi.');
+  sc.shots = arr.slice(0, count).map((x) => ({ id: uid(), image: String(x.image).slice(0, 1200), video: String(x.video).slice(0, 1200), overlay: String(x.overlay || '').slice(0, 120), sfx: String(x.sfx || '').slice(0, 160) }));
+  openScenes.add(sc.id); save(true);
+}
+const shotText = (s, sh, k) => k === 'image' ? sh.image : k === 'video' ? sh.video : `IMAGE: ${sh.image}\nVIDEO: ${sh.video}`;
+function allPromptsText(p) {
+  return p.scenes.filter((s) => s.shots && s.shots.length).map((s, si) => `## Scene ${si + 1} — ${s.title} (${fmtTime(s.start)}–${fmtTime(s.end)})\n` + s.shots.map((sh, i) => { const [a, b] = shotRange(s, i, s.shots.length); return `Shot ${si + 1}.${i + 1} (${fmtTime(a)}–${fmtTime(b)})\nIMAGE: ${sh.image}\nVIDEO: ${sh.video}${sh.overlay ? `\nTEKS LAYAR: ${sh.overlay}` : ''}${sh.sfx ? `\nSFX: ${sh.sfx}` : ''}`; }).join('\n\n')).join('\n\n');
+}
+function pinSheet() {
+  let has = ''; try { has = localStorage.getItem(PIN_KEY) || ''; } catch (e) { /* abaikan */ }
+  openSheet('PIN Akses AI', `<p class="text-slate-400 leading-relaxed">Worker ini dilindungi PIN supaya kuota AI-mu tidak dipakai orang lain. Masukkan PIN yang kamu set di Cloudflare (secret <code class="font-mono text-brand-300">APP_PIN</code>).</p><div><label class="label">PIN</label><input id="pinIn" type="password" inputmode="numeric" autocomplete="off" class="input" value="${esc(has)}" placeholder="••••"></div>`, [
+    { label: 'Batal' },
+    { label: 'Simpan', cls: 'btn-primary', fn: () => {
+      const v = val('pinIn').trim(); if (!v) { toast('Isi PIN'); return false; }
+      try { localStorage.setItem(PIN_KEY, v); } catch (e) { /* abaikan */ }
+      ai('ping').then(() => toast('PIN benar ✓')).catch((e) => { try { localStorage.removeItem(PIN_KEY); } catch (e2) { /* abaikan */ } toast(e.message); });
+    } }
+  ], { focus: '#pinIn' });
 }
 
 /* ---------- Modul 4: Aset & Audit ---------- */
@@ -827,6 +928,16 @@ function genSheet(preset = {}) {
     } }
   ], { focus: '#g_topic' });
 }
+function shotSheet(sc, i) {
+  const sh = sc.shots[i];
+  openSheet(`Edit shot ${i + 1}`, `
+    <div><label class="label">Prompt gambar</label><textarea id="f_img" rows="5" class="input !text-[14px]">${esc(sh.image)}</textarea></div>
+    <div><label class="label">Prompt video</label><textarea id="f_vid" rows="5" class="input !text-[14px]">${esc(sh.video)}</textarea></div>
+    <div class="grid grid-cols-2 gap-2"><div><label class="label">Teks layar</label><input id="f_ovl" class="input" value="${esc(sh.overlay)}"></div><div><label class="label">SFX / musik</label><input id="f_sfx" class="input" value="${esc(sh.sfx)}"></div></div>`, [
+    { label: 'Batal' },
+    { label: 'Simpan', cls: 'btn-primary', fn: () => { Object.assign(sh, { image: val('f_img'), video: val('f_vid'), overlay: val('f_ovl'), sfx: val('f_sfx') }); save(true); render(); toast('Shot disimpan'); } }
+  ]);
+}
 function projectsSheet() {
   const body = `
     <div class="space-y-1.5">${S.projects.map((p) => `<button data-act="openProject" data-id="${p.id}" class="w-full text-left p-3 rounded-xl border ${p.id === S.activeId ? 'border-brand-500/60 bg-brand-600/15' : 'border-white/10 bg-black/20'} flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm font-semibold text-white truncate">${esc(p.title || 'Tanpa judul')}</div><div class="text-[10px] text-slate-500">${wordCount(p.script)} kata • diubah ${new Date(p.updatedAt).toLocaleDateString('id-ID')}</div></div>${p.id === S.activeId ? ic('check', 'w-4 h-4 text-brand-400') : ''}</button>`).join('')}</div>
@@ -842,7 +953,8 @@ function menuSheet() {
     ${it('dlScript', 'file-text', 'Unduh naskah (.txt)')}
     ${it('copyScript', 'copy', 'Salin naskah')}
     ${it('dlAssets', 'layers', 'Ekspor daftar aset (CSV)')}
-    ${it('aiStatus', 'sparkles', 'Status AI', 'Cek koneksi Workers AI')}
+    ${it('pin', 'settings', 'PIN akses AI', 'Kode pengaman endpoint AI')}
+    ${it('aiStatus', 'sparkles', 'Status AI', 'Penyedia, model, PIN')}
     ${it('delProject', 'trash-2', 'Hapus proyek ini')}
     ${it('checkUpdate', 'refresh-cw', 'Cek pembaruan', 'Versi ' + APP_VERSION)}
   </div>`, []);
@@ -946,7 +1058,7 @@ const ACT = {
   toStory: () => { scriptTab = 'story'; render(); },
   scenesFromScript: async () => {
     const p = P(); if (!p.script.trim()) return toast('Naskah masih kosong');
-    if (p.scenes.length && !(await confirmSheet('Buat ulang storyboard?', 'Scene yang ada akan diganti dengan hasil dari naskah.', 'Buat ulang', true))) return;
+    if (p.scenes.length && !(await confirmSheet('Buat ulang storyboard?', 'Scene yang ada (termasuk prompt visualnya) akan diganti dengan hasil dari naskah.', 'Buat ulang', true))) return;
     p.scenes = scenesFromScript(p.script, S.wpm); save(true); render(); toast(p.scenes.length + ' scene dibuat — minta AI merancang visualnya');
   },
   sceneAI: async () => {
@@ -963,9 +1075,46 @@ const ACT = {
   assetEdit: (d) => assetSheet(P().assets.find((a) => a.id === d.id)),
   assetDel: async (d) => { if (await confirmSheet('Hapus aset?', 'Aset ini akan dihapus dari daftar audit.', 'Hapus', true)) { const p = P(); p.assets = p.assets.filter((a) => a.id !== d.id); save(); render(); } },
   audit: () => { const p = P(); p.lastAudit = finalAudit(p, S.wpm); save(); render4(); toast('Audit selesai: ' + p.lastAudit.status); },
+  pin: () => { closeSheet(); setTimeout(pinSheet, 60); },
+  lang: (d) => { P().promptLang = d.l; save(); render(); },
+  toggleScene: (d) => { if (openScenes.has(d.id)) openScenes.delete(d.id); else openScenes.add(d.id); render(); },
+  genStyle: async () => { try { await genStyle(P()); toast('Style bible dibuat'); } catch (e) { toast(e.message); } },
+  genShots: async (d) => {
+    const p = P(); const sc = p.scenes.find((x) => x.id === d.id); if (!sc || busy.prompts) return;
+    busy.prompts = { done: 0, total: 1, current: sc.id }; render();
+    try { if (!p.styleBible.trim()) await genStyle(p); await genShots(p, sc); toast('Prompt scene siap'); } catch (e) { toast(e.message); }
+    finally { busy.prompts = null; if (mod === 5) render(); }
+  },
+  genAllShots: async () => {
+    const p = P(); if (busy.prompts) return;
+    const allDone = p.scenes.every((s) => s.shots && s.shots.length);
+    if (allDone && !(await confirmSheet('Buat ulang semua prompt?', 'Semua prompt shot yang ada (termasuk editanmu) akan ditulis ulang.', 'Buat ulang', true))) return;
+    const targets = p.scenes.filter((s) => allDone || !(s.shots && s.shots.length));
+    busy.prompts = { done: 0, total: targets.length, current: null, cancel: false }; render();
+    let ok = 0;
+    try {
+      if (!p.styleBible.trim()) await genStyle(p);
+      for (const sc of targets) {
+        if (busy.prompts.cancel) break;
+        busy.prompts.current = sc.id; if (mod === 5) render();
+        await genShots(p, sc); ok++; busy.prompts.done = ok;
+      }
+      toast(busy.prompts.cancel ? `Dihentikan (${ok}/${targets.length} scene)` : `${ok} scene selesai`);
+    } catch (e) { toast(`${e.message} (${ok}/${targets.length} scene tersimpan)`); }
+    finally { busy.prompts = null; if (mod === 5) render(); }
+  },
+  cancelPrompts: () => { if (busy.prompts) { busy.prompts.cancel = true; toast('Berhenti setelah scene ini selesai'); } },
+  copyShot: async (d) => { const sc = P().scenes.find((x) => x.id === d.id); const sh = sc && sc.shots[+d.i]; if (!sh) return; toast((await copyText(shotText(sc, sh, d.k))) ? 'Prompt disalin' : 'Gagal menyalin'); },
+  shotEdit: (d) => { const sc = P().scenes.find((x) => x.id === d.id); if (sc && sc.shots[+d.i]) shotSheet(sc, +d.i); },
+  copyAllPrompts: async () => toast((await copyText(allPromptsText(P()))) ? 'Semua prompt disalin' : 'Gagal menyalin'),
+  dlPrompts: async () => {
+    const p = P(); const rows = [['Scene', 'Shot', 'Mulai', 'Selesai', 'Prompt gambar', 'Prompt video', 'Teks layar', 'SFX']];
+    p.scenes.forEach((s, si) => (s.shots || []).forEach((sh, i) => { const [a, b] = shotRange(s, i, s.shots.length); rows.push([`${si + 1}. ${s.title}`, `${si + 1}.${i + 1}`, fmtTime(a), fmtTime(b), sh.image, sh.video, sh.overlay, sh.sfx]); }));
+    await saveFile(slug(p.title) + '-prompt-visual.csv', 'text/csv', '\ufeff' + rows.map((r) => r.map(csvEscape).join(',')).join('\n'));
+  },
   aiStatus: async () => {
     closeSheet();
-    try { const r = await fetch('/api/health', { cache: 'no-store' }); const j = await r.json(); toast(j.ai ? 'AI aktif ✓ (Workers AI)' : 'Binding AI belum aktif di Worker'); } catch (e) { toast('Endpoint AI tidak terjangkau'); }
+    try { const r = await fetch('/api/health', { cache: 'no-store' }); const j = await r.json(); toast(j.ai ? `AI aktif ✓ ${j.provider === 'gemini' ? 'Gemini' : 'Workers AI'} (${j.model})${j.fallback ? ' + cadangan' : ''} • PIN ${j.pin ? 'aktif' : 'mati'}` : 'Belum ada penyedia AI di Worker'); } catch (e) { toast('Endpoint AI tidak terjangkau'); }
   },
   exportAll: async () => { closeSheet(); await saveFile(`yt-hunter-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json', JSON.stringify({ app: 'yt-hunter', v: 2, exportedAt: new Date().toISOString(), data: S }, null, 2)); },
   importAll: () => { closeSheet(); $('#importFile').value = ''; $('#importFile').click(); },
@@ -1024,3 +1173,8 @@ addEventListener('pagehide', () => save(true));
 load();
 initPWA();
 switchModule(1);
+fetch('/api/health', { cache: 'no-store' }).then((r) => r.json()).then((j) => {
+  gemini = j.provider === 'gemini';
+  let has = ''; try { has = localStorage.getItem(PIN_KEY) || ''; } catch (e) { /* abaikan */ }
+  if (j.pin && !has) setTimeout(pinSheet, 700);
+}).catch(() => {});
