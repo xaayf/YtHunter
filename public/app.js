@@ -336,7 +336,7 @@ function csvEscape(v) { v = String(v ?? ''); return /[",\n;]/.test(v) ? '"' + v.
 function uid() { return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4); }
 
 /* ===== YT Hunter — UI ===== */
-const APP_VERSION = 'd05cef7a';
+const APP_VERSION = 'b4417d52';
 const KEY = 'ythunter:v1';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -952,7 +952,7 @@ const ACT = {
   checkUpdate: async () => {
     closeSheet();
     if (!('serviceWorker' in navigator)) return toast('Tidak didukung di browser ini');
-    try { const reg = await navigator.serviceWorker.getRegistration(); if (!reg) return toast('Belum terdaftar (buka via HTTPS)'); await reg.update(); toast(reg.waiting || reg.installing ? 'Pembaruan ditemukan' : 'Sudah versi terbaru'); } catch (e) { toast('Gagal cek pembaruan'); }
+    try { const reg = await navigator.serviceWorker.getRegistration(); if (!reg) return toast('SW gagal: ' + (window._swErr || 'sw.js tidak ditemukan / install gagal')); await reg.update(); toast(reg.waiting || reg.installing ? 'Pembaruan ditemukan' : 'Sudah versi terbaru'); } catch (e) { toast('Gagal cek pembaruan'); }
   }
 };
 $('#importFile').addEventListener('change', async (e) => {
@@ -982,7 +982,7 @@ function initPWA() {
     reg.addEventListener('updatefound', () => { const nw = reg.installing; if (nw) nw.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdate(nw); }); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
     setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
-  }).catch(() => {});
+  }).catch((e) => { window._swErr = String(e && e.message || e); });
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => { if (!hadController || reloading) return; reloading = true; location.reload(); });
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});

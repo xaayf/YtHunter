@@ -1,10 +1,10 @@
-const VERSION = 'd05cef7a';
+const VERSION = '__VERSION__';
 const CACHE = 'ythunter-' + VERSION;
-const FILES = ["./","index.html","app.css?v=d05cef7a","app.js?v=d05cef7a","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/apple-touch-icon.png","icons/favicon-32.png"];
+const FILES = __FILES__;
 
 self.addEventListener('install', (e) => {
   // Tidak skipWaiting otomatis: user yang menekan "Perbarui" supaya tidak ada reload mendadak.
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)));
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.allSettled(FILES.map((f) => c.add(f)))));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(

@@ -1,0 +1,34 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root { --sat: env(safe-area-inset-top, 0px); --sab: env(safe-area-inset-bottom, 0px); }
+html, body { height: 100%; }
+body {
+  background: #0b0d14; color: #e2e8f0;
+  -webkit-tap-highlight-color: transparent; -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none; touch-action: manipulation;
+}
+#app { height: 100vh; height: 100dvh; display: flex; flex-direction: column; }
+.ic { display:inline-block; flex:none; fill:none; stroke:currentColor; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; }
+input, select, textarea { font-size: 16px; }
+@media (min-width: 768px) { input.sm-text, select.sm-text { font-size: 14px; } }
+.scroll { -webkit-overflow-scrolling: touch; overscroll-behavior-y: contain; overflow-y: auto; }
+::-webkit-scrollbar { width:5px; height:5px } ::-webkit-scrollbar-thumb { background:#23273c; border-radius:4px }
+
+@keyframes pulse-bar { 0%,100% { transform: scaleY(.45) } 50% { transform: scaleY(1) } }
+.wave-on { animation: pulse-bar 1s ease-in-out infinite; }
+@keyframes sheet-in { from { transform: translateY(24px); opacity:0 } to { transform:none; opacity:1 } }
+.sheet-in { animation: sheet-in .22s ease-out; }
+
+@layer components {
+  .card { @apply rounded-2xl bg-surface-dark border border-surface-border; }
+  .btn { @apply inline-flex items-center justify-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-semibold transition active:scale-95 select-none; min-height: 36px; }
+  .btn-primary { @apply btn bg-gradient-to-r from-brand-600 to-indigo-600 text-white shadow-md shadow-purple-950/50; }
+  .btn-ghost { @apply btn bg-surface-card border border-surface-border text-slate-200; }
+  .btn-warn { @apply btn bg-amber-500/15 border border-amber-500/30 text-amber-300; }
+  .btn-danger { @apply btn bg-rose-500/15 border border-rose-500/30 text-rose-300; }
+  .input { @apply w-full rounded-xl bg-surface-darkest border border-surface-border px-3 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-brand-500; }
+  .label { @apply block text-[11px] font-semibold text-slate-300 mb-1; }
+  .chip { @apply inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-mono font-bold; }
+}
