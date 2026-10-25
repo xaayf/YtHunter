@@ -20,57 +20,49 @@
 <body>
 <!--SPRITE-->
 
+<div class="bg-blobs" aria-hidden="true"></div>
 <div id="app">
-  <!-- Update banner -->
-  <div id="updateBar" class="hidden shrink-0 bg-brand-600 text-white text-xs px-3 py-2 flex items-center justify-between gap-2" style="padding-top:calc(var(--sat) + .5rem)">
-    <span class="font-semibold">Versi baru tersedia</span>
-    <button id="btnUpdate" class="px-3 py-1 rounded-lg bg-white text-brand-700 font-bold active:scale-95">Perbarui</button>
-  </div>
-
-  <!-- Header -->
-  <header id="appHeader" class="shrink-0 bg-surface-dark border-b border-surface-border px-3 pb-2 flex items-center justify-between gap-2" style="padding-top:calc(var(--sat) + .5rem)">
-    <button data-act="projects" class="flex items-center gap-2.5 min-w-0 text-left active:opacity-70" aria-label="Pilih proyek">
-      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center text-white shadow-md shadow-purple-900/40 shrink-0">
+  <!-- Header: sticky + glass -->
+  <header id="appHeader" class="glass-bar fixed top-0 inset-x-0 z-30 px-4 pb-2.5 flex items-center justify-between" style="padding-top:calc(var(--sat) + .6rem)">
+    <div class="flex items-center gap-2.5">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-purple-600 to-indigo-500 flex items-center justify-center text-white shadow-lg shadow-purple-900/50 ring-1 ring-white/20">
         <svg class="ic w-5 h-5"><use href="#i-shield-check"/></svg>
       </div>
-      <div class="min-w-0">
-        <div class="text-[10px] uppercase tracking-wider text-slate-500 font-bold leading-none flex items-center gap-1">YT Hunter <span id="offlineBadge" class="hidden text-amber-400 normal-case tracking-normal">· offline</span></div>
-        <div class="flex items-center gap-1 mt-0.5">
-          <span id="projectTitleHeader" class="text-sm font-semibold text-white truncate">—</span>
-          <svg class="ic w-3.5 h-3.5 text-slate-400"><use href="#i-chevron-down"/></svg>
-        </div>
-      </div>
-    </button>
-    <div class="flex items-center gap-2 shrink-0">
-      <span id="saveBadge" class="hidden md:inline text-[10px] text-slate-500">Tersimpan</span>
-      <button data-act="menu" class="btn-ghost !px-2.5" aria-label="Menu"><svg class="ic w-4 h-4"><use href="#i-ellipsis"/></svg></button>
+      <span class="text-[17px] font-bold tracking-tight text-white">YT Hunter</span>
     </div>
+    <button data-act="menu" class="glass-btn w-9 h-9 flex items-center justify-center" aria-label="Menu"><svg class="ic w-5 h-5"><use href="#i-ellipsis"/></svg></button>
   </header>
 
+  <!-- Update pill -->
+  <div id="updateBar" class="hidden fixed left-3 right-3 z-30 glass rounded-2xl px-3.5 py-2.5 items-center justify-between gap-2 text-xs" style="top:calc(var(--sat) + 4rem)">
+    <span class="font-semibold text-white">Versi baru tersedia</span>
+    <button id="btnUpdate" class="px-3.5 py-1.5 rounded-xl bg-brand-600 text-white font-bold active:scale-95">Perbarui</button>
+  </div>
+
   <!-- Views -->
-  <main id="main" class="flex-1 min-h-0 relative">
-    <section id="view-1" class="scroll absolute inset-0 hidden"></section>
-    <section id="view-2" class="scroll absolute inset-0 hidden"></section>
-    <section id="view-3" class="scroll absolute inset-0 hidden"></section>
-    <section id="view-4" class="scroll absolute inset-0 hidden"></section>
+  <main id="main">
+    <section id="view-1" class="view scroll hidden"></section>
+    <section id="view-2" class="view scroll hidden"></section>
+    <section id="view-3" class="view scroll hidden"></section>
+    <section id="view-4" class="view scroll hidden"></section>
   </main>
 
-  <!-- Bottom nav -->
-  <nav class="shrink-0 bg-surface-dark/95 backdrop-blur border-t border-surface-border grid grid-cols-4" style="padding-bottom:var(--sab)">
-    <button data-act="mod" data-n="1" id="tab-1" class="py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-compass"/></svg>Riset Ide</button>
-    <button data-act="mod" data-n="2" id="tab-2" class="py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-file-pen-line"/></svg>Skrip</button>
-    <button data-act="mod" data-n="3" id="tab-3" class="py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-shield-alert"/></svg>AI Guard</button>
-    <button data-act="mod" data-n="4" id="tab-4" class="py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-layers"/></svg>Aset</button>
+  <!-- Bottom nav: glass -->
+  <nav class="glass-bar fixed bottom-0 inset-x-0 z-30 grid grid-cols-4" style="padding-bottom:var(--sab);border-top:1px solid rgba(255,255,255,.08);border-bottom:0">
+    <button data-act="mod" data-n="1" id="tab-1" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-compass"/></svg>Launchpad</button>
+    <button data-act="mod" data-n="2" id="tab-2" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-file-pen-line"/></svg>Skrip</button>
+    <button data-act="mod" data-n="3" id="tab-3" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-shield-alert"/></svg>AI Guard</button>
+    <button data-act="mod" data-n="4" id="tab-4" class="py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold"><svg class="ic w-5 h-5"><use href="#i-layers"/></svg>Aset</button>
   </nav>
 </div>
 
 <!-- Sheet (modal) -->
 <div id="sheetRoot" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center">
-  <div id="sheet" class="sheet-in w-full sm:max-w-lg max-h-[92dvh] flex flex-col bg-surface-card border border-surface-border rounded-t-3xl sm:rounded-2xl shadow-2xl" style="padding-bottom:var(--sab)"></div>
+  <div id="sheet" class="sheet-in glass-sheet w-full sm:max-w-lg max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-2xl shadow-2xl" style="padding-bottom:var(--sab)"></div>
 </div>
 
 <!-- Toast -->
-<div id="toast" class="fixed left-1/2 -translate-x-1/2 z-[60] opacity-0 pointer-events-none transition-all duration-300 translate-y-3 max-w-[92vw] bg-surface-card border border-brand-500/50 text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2" style="bottom:calc(var(--sab) + 4.5rem)">
+<div id="toast" class="glass fixed left-1/2 -translate-x-1/2 z-[60] opacity-0 pointer-events-none transition-all duration-300 translate-y-3 max-w-[92vw] text-white text-xs px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2" style="bottom:calc(var(--sab) + 5rem)">
   <svg class="ic w-4 h-4 text-brand-400"><use href="#i-info"/></svg><span id="toastMsg"></span>
 </div>
 

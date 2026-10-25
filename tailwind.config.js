@@ -2,7 +2,7 @@ module.exports = {
   safelist: [
     ...['emerald','amber','rose'].flatMap((c) => [`bg-${c}-500/10`, `bg-${c}-500/20`, `text-${c}-300`, `border-${c}-500/30`])
   ],
-  content: ['./src/index.html', './src/app.js'],
+  content: ['./src/index.html', './src/app.js', './src/lib.js'],
   theme: {
     extend: {
       colors: {

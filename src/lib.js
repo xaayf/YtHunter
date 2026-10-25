@@ -8,21 +8,6 @@ const CLICHES = [
   'simak sampai habis', 'tanpa berlama-lama lagi', 'tanpa basa-basi lagi', 'jangan lupa like', 'jangan lupa subscribe',
   'halo guys', 'hai guys', 'yuk langsung saja', 'langsung saja kita mulai'
 ];
-const CLEAN_MAP = [
-  [/Tahukah (kamu|anda) bahwa/gi, 'Pernahkah kamu menyadari kalau'],
-  [/Tahukah (kamu|anda)/gi, 'Coba renungkan sejenak:'],
-  [/Fakta menarik yang sering ditutupi adalah/gi, 'Temuan yang jarang dibahas menunjukkan bahwa'],
-  [/Fakta menariknya/gi, 'Bukti penting selanjutnya'],
-  [/Fakta menarik/gi, 'Temuan penting'],
-  [/Di video kali ini kita akan membahas/gi, 'Hari ini kita bedah tuntas'],
-  [/Di video kali ini/gi, 'Hari ini'],
-  [/Simak (ulasannya )?sampai habis/gi, 'Mari kita uji buktinya bersama-sama'],
-  [/Tanpa (berlama-lama|basa-basi) lagi/gi, 'Kita mulai dari bukti pertama'],
-  [/Langsung saja kita mulai|Yuk langsung saja/gi, 'Kita mulai dari bukti pertama'],
-  [/(Halo|Hai) guys/gi, 'Halo semuanya'],
-  [/Jangan lupa (like|subscribe)[^.!?\n]*[.!?]?/gi, 'Kalau kamu punya pendapat sendiri, tulis di kolom komentar.']
-];
-
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const fmtTime = (s) => { s = Math.max(0, Math.round(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
@@ -68,16 +53,6 @@ function sectionType(n) {
   if (/penutup|kesimpulan|cta|outro/.test(s)) return 'Penutup';
   return 'Isi';
 }
-const SCENE_PRESET = {
-  Hook:     { visual: 'Teks pertanyaan retoris besar di atas footage atmosferik buatan sendiri / stok berlisensi.', audio: 'SFX ambience halus', motion: 'Zoom in 1.2x' },
-  Konflik:  { visual: 'Sorot dokumen / data pembanding, highlight angka kunci.', audio: 'BGM investigatif', motion: 'Pan kiri ke kanan' },
-  Bukti:    { visual: 'Tampilkan sumber asli (arsip, laporan, grafik) dengan anotasi sendiri.', audio: 'BGM rendah, narasi dominan', motion: 'Push-in pelan' },
-  Analisis: { visual: 'Diagram / grafik buatan sendiri + teks kata kunci opini.', audio: 'Opini narator', motion: 'Cut tiap 4–6 detik' },
-  Transisi: { visual: 'Layar jeda singkat / transisi ke bahan riset berikutnya.', audio: 'Jeda napas', motion: 'Fade' },
-  Penutup:  { visual: 'Ringkasan 3 poin + pertanyaan diskusi di layar.', audio: 'BGM resolusi', motion: 'Zoom out' },
-  Isi:      { visual: 'Visual pendukung sesuai isi narasi.', audio: 'BGM netral', motion: 'Statis / zoom ringan' }
-};
-
 /** Buat scene dengan durasi nyata dari naskah */
 function scenesFromScript(text, wpm) {
   const secs = parseSections(text);
@@ -90,7 +65,7 @@ function scenesFromScript(text, wpm) {
     if (w === 0 && type === 'Transisi' && scenes.length) { scenes[scenes.length - 1].end += dur; t += dur; continue; }
     if (w === 0 && dur === 0) continue;
     const dMin = Math.max(dur, 3);
-    scenes.push({ id: uid(), title: cleanSectionName(s.name), type, start: t, end: t + dMin, ...SCENE_PRESET[type] });
+    scenes.push({ id: uid(), title: cleanSectionName(s.name), type, start: t, end: t + dMin, visual: '', audio: '', motion: '', src: s.body.slice(0, 320) });
     t += dMin;
   }
   return scenes;
@@ -234,30 +209,9 @@ function finalAudit(project, wpm) {
   return { at: Date.now(), checks, fails: f, warns: w, status: f ? 'Belum siap' : w ? 'Hampir siap' : 'Siap produksi', score: an.score };
 }
 
-/* ===== Generator ide & naskah (offline, tanpa API) ===== */
-const IDEA_DEFS = [
-  { a: 'science', type: 'Investigasi Data', badge: 'Sangat Aman', c: 'emerald', t: (T) => `Apa Kata Data Soal ${T}? Membedah Angka di Balik Ceritanya`, d: 'Kumpulkan data primer (statistik, arsip, laporan resmi) lalu bandingkan dengan narasi populer.' },
-  { a: 'psychology', type: 'Psikologi Massa', badge: 'Transformatif', c: 'indigo', t: (T) => `Kenapa Otak Kita Mudah Percaya Cerita Tentang ${T}?`, d: 'Bias kognitif dan daya tarik cerita: mengapa narasi dramatis lebih mudah menyebar daripada fakta biasa.' },
-  { a: 'debunk', type: 'Cek Fakta Dokumen', badge: 'Unik', c: 'purple', t: (T) => `Kita Cek Satu Per Satu Klaim Populer Tentang ${T}`, d: 'Ambil 3–5 klaim yang sering beredar, telusuri sumber aslinya, beri verdict per klaim.' },
-  { a: 'human', type: 'Human Interest', badge: 'High Retention', c: 'amber', t: (T) => `Sisi Manusia dari ${T}: Cerita yang Jarang Diangkat`, d: 'Kisah orang-orang yang terlibat, dibingkai dengan konteks, bukan sekadar kronologi.' },
-  { a: 'compare', type: 'Komparasi', badge: 'Edukasi Kritis', c: 'cyan', t: (T) => `${T} vs Pembanding yang Lebih Nyata: Mana yang Sebenarnya Lebih Besar?`, d: 'Bandingkan dengan kasus/angka serupa memakai grafik buatan sendiri.' },
-  { a: 'debunk', type: 'Asal-usul Cerita', badge: 'Anti-Mainstream', c: 'brand', t: (T) => `Dari Mana Sebenarnya Cerita ${T} Berasal?`, d: 'Telusuri siapa yang pertama menyebarkan, kapan, dan kenapa cerita itu bertahan.' },
-  { a: 'science', type: 'Penjelasan Sains', badge: 'Visual Rich', c: 'emerald', t: (T) => `Penjelasan Ilmiah di Balik ${T} dalam 5 Menit`, d: 'Jelaskan mekanisme dasar dengan animasi / diagram sederhana buatan sendiri.' },
-  { a: 'timeline', type: 'Linimasa', badge: 'Storytelling', c: 'indigo', t: (T) => `Linimasa ${T}: Titik Balik yang Mengubah Segalanya`, d: 'Susun peristiwa kunci berurutan dan tandai momen yang mengubah pemahaman publik.' },
-  { a: 'science', type: 'Sisi Teknis', badge: 'Dokumenter', c: 'rose', t: (T) => `Sisi Teknis ${T} yang Jarang Dijelaskan`, d: 'Telaah detail teknis / prosedural dengan bahasa yang mudah dipahami.' },
-  { a: 'psychology', type: 'Budaya Pop', badge: 'Analisis Budaya', c: 'purple', t: (T) => `Bagaimana Media dan Budaya Pop Membentuk Citra ${T}`, d: 'Telaah peran film, berita, dan media sosial dalam membentuk persepsi massal.' },
-  { a: 'science', type: 'Sumber Primer', badge: 'Data Baru', c: 'cyan', t: (T) => `Sumber Primer Terbaru Tentang ${T}: Apa yang Berubah?`, d: 'Rangkum riset / data terbaru dan jelaskan apa artinya bagi pemahaman umum.' },
-  { a: 'compare', type: 'Sisi Ekonomi', badge: 'Unik', c: 'emerald', t: (T) => `Siapa yang Diuntungkan dari Ramainya Cerita ${T}?`, d: 'Telusuri aliran uang / perhatian: penerbit, media, atau produk yang ikut naik.' },
-  { a: 'human', type: 'Suara Praktisi', badge: 'Opini Personal', c: 'amber', t: (T) => `Kata Praktisi Soal ${T}: Beda dengan yang Kamu Kira`, d: 'Hadirkan kesaksian / wawancara orang yang bekerja langsung di bidangnya (dengan izin).' },
-  { a: 'debunk', type: 'Kesalahan Umum', badge: 'Edukasi', c: 'indigo', t: (T) => `5 Kesalahpahaman Umum Tentang ${T} dan Cara Mengoreksinya`, d: 'Format daftar tapi tiap poin wajib punya bukti dan analisis, bukan sekadar fakta singkat.' },
-  { a: 'psychology', type: 'Refleksi Kritis', badge: 'High Engagement', c: 'brand', t: (T) => `Jika Cerita ${T} Ternyata Keliru, Kenapa Kita Masih Ingin Percaya?`, d: 'Pertanyaan reflektif yang memancing komentar bermakna.' }
-];
+/* ===== Opsi & helper AI (konten dibuat server-side oleh AI, bukan template) ===== */
 const BADGE = { emerald: 'bg-emerald-500/20 text-emerald-300', indigo: 'bg-indigo-500/20 text-indigo-300', purple: 'bg-purple-500/20 text-purple-300', amber: 'bg-amber-500/20 text-amber-300', cyan: 'bg-cyan-500/20 text-cyan-300', brand: 'bg-brand-500/20 text-brand-300', rose: 'bg-rose-500/20 text-rose-300' };
-function genIdeas(topic) {
-  return IDEA_DEFS.map((d, i) => ({ id: 'i' + i + '-' + hash(topic + i), title: d.t(topic), desc: d.d, type: d.type, badge: d.badge, c: d.c, angle: d.a, fav: false }));
-}
-function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h).toString(36); }
-
+const BADGE_KEYS = Object.keys(BADGE);
 const ANGLES = {
   psychology: 'Psikologi: kenapa publik tertarik',
   science: 'Sains & data: apa kata angka',
@@ -267,67 +221,24 @@ const ANGLES = {
   timeline: 'Linimasa: titik balik kejadian'
 };
 const TONES = { investigative: 'Dokumenter investigatif', reflective: 'Obrolan reflektif & akrab', critical: 'Debat kritis berbasis data' };
-const TONE_LINES = {
-  investigative: { open: 'Mari kita bedah pelan-pelan.', turn: 'Sekarang perhatikan detail berikut.' },
-  reflective: { open: 'Coba kita renungkan bersama.', turn: 'Bayangkan sebentar situasinya.' },
-  critical: { open: 'Sekarang kita uji klaimnya satu per satu.', turn: 'Mari kita lihat apakah argumennya bertahan.' }
-};
-const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
-
-function genScript({ topic, angle, tone, sections }) {
-  const T = topic || 'topik ini';
-  const tl = TONE_LINES[tone] || TONE_LINES.investigative;
-  const ALL = {
-    psychology: {
-      hook: [`Kalau bukti menunjukkan ${T} tidak seaneh ceritanya, kenapa kita masih terus tertarik padanya?`, `Apa yang sebenarnya membuat cerita tentang ${T} begitu sulit dilupakan?`],
-      conflict: `Banyak orang menganggap ${T} sudah jelas. Namun pembahasan yang beredar sering berhenti di permukaan, dan jarang bertanya kenapa cerita itu terasa meyakinkan. ${tl.open}`,
-      analysis: `Menurut analisis saya, jawabannya ada pada cara otak manusia memperlakukan cerita: kita cenderung memilih penjelasan yang dramatis dibanding yang biasa saja. Ini bukan soal bodoh atau pintar, ini soal bias yang dimiliki semua orang.`,
-      evid: `Untuk menguji itu, kita butuh bukti. Sebutkan satu studi, survei, atau catatan sejarah nyata tentang ${T} {{isi nama sumber + tahun}}. Lalu jelaskan apa temuannya {{isi angka atau temuan utama}}.`
-    },
-    science: {
-      hook: [`Bagaimana kalau jawaban soal ${T} ternyata ada di angka, bukan di cerita?`, `Satu data sederhana bisa mengubah cara kita memandang ${T}. Datanya apa?`],
-      conflict: `Cerita populer tentang ${T} sering terdengar meyakinkan, tetapi jarang disertai angka pembanding. ${tl.open}`,
-      analysis: `Menurut saya, data yang tepat lebih jujur daripada narasi yang ramai. Kalau angkanya biasa saja, berarti ada hal lain yang membuat ${T} terasa istimewa.`,
-      evid: `Sumber utama kita adalah {{isi sumber data resmi + tahun}}. Angka kuncinya {{isi angka}}, dibandingkan dengan {{isi pembanding}}. ${tl.turn}`
-    },
-    debunk: {
-      hook: [`Ada klaim tentang ${T} yang sering kamu dengar. Hari ini kita cek apakah klaim itu bertahan.`, `Berapa banyak klaim tentang ${T} yang benar-benar punya sumber?`],
-      conflict: `Setiap kali ${T} dibahas, beberapa klaim yang sama selalu muncul tanpa sumber. ${tl.open}`,
-      analysis: `Analisis saya sederhana: klaim yang kuat harus bisa ditelusuri ke sumber primer. Kalau tidak, kita sedang mendengar kabar, bukan bukti.`,
-      evid: `Klaim 1: {{isi klaim}} — sumber aslinya {{isi sumber primer}}, verdict {{benar/salah/sebagian}}. Klaim 2: {{isi klaim}} — verdict {{isi}}. ${tl.turn}`
-    },
-    human: {
-      hook: [`Di balik ${T} ada manusia nyata yang jarang kita dengar ceritanya.`, `Bagaimana rasanya berada di tengah peristiwa ${T}?`],
-      conflict: `Pembahasan tentang ${T} biasanya hanya berisi tanggal dan angka. Sisi manusianya hilang. ${tl.open}`,
-      analysis: `Menurut saya, cerita personal membantu kita memahami konteks yang tidak muncul di statistik, asalkan dituturkan dengan jujur dan tidak dilebih-lebihkan.`,
-      evid: `Kisah yang kita bahas berasal dari {{isi sumber: wawancara/arsip/memoar + tahun}}. Detail penting: {{isi detail yang bisa diverifikasi}}. ${tl.turn}`
-    },
-    compare: {
-      hook: [`Seberapa besar sebenarnya ${T} kalau dibandingkan dengan hal serupa?`, `Kita sering menilai ${T} tanpa pembanding. Hari ini kita beri pembanding.`],
-      conflict: `Angka tanpa pembanding mudah menyesatkan. Karena itu kita taruh ${T} berdampingan dengan kasus lain. ${tl.open}`,
-      analysis: `Menurut analisis saya, perbandingan yang adil harus memakai ukuran yang sama. Kalau ukurannya beda, kesimpulannya ikut keliru.`,
-      evid: `Ukuran yang kita pakai: {{isi metrik}}. Untuk ${T} nilainya {{isi angka}}, untuk pembanding {{isi angka}}, sumber {{isi sumber + tahun}}. ${tl.turn}`
-    },
-    timeline: {
-      hook: [`Ada satu momen yang mengubah cara orang memandang ${T}. Kapan itu terjadi?`, `Mari mundur ke awal cerita ${T} dan lihat bagaimana semuanya berkembang.`],
-      conflict: `Cerita ${T} sering disajikan loncat-loncat tanpa urutan. Kita susun ulang dari awal. ${tl.open}`,
-      analysis: `Menurut saya, titik balik bukan selalu kejadian terbesar, melainkan momen ketika cara bercerita berubah.`,
-      evid: `Tiga titik penting: {{isi tahun + peristiwa 1}}, {{isi tahun + peristiwa 2}}, {{isi tahun + peristiwa 3}}. Sumber untuk tiap titik: {{isi sumber}}. ${tl.turn}`
-    }
-  };
-  const a = ALL[angle] || ALL.psychology;
-  const n = clamp(+sections || 5, 4, 7);
-  const parts = [];
-  parts.push(`[Hook: 0-10s]\n${pick(a.hook)}`);
-  parts.push(`[Konflik]\n${a.conflict}`);
-  parts.push(`[Bukti & Sumber]\n${a.evid}`);
-  parts.push(`[Jeda 1.5s]`);
-  parts.push(`[Opini Kritis & Analisis]\n${a.analysis}`);
-  if (n >= 6) parts.push(`[Studi Kasus]\nContoh paling jelas yang bisa kita ambil: {{isi satu kasus nyata tentang ${T} + sumbernya}}. Apa yang bisa kita pelajari darinya?`);
-  if (n >= 7) parts.push(`[Jeda 1.5s]`);
-  if (n >= 5) parts.push(`[Sanggahan]\nTentu ada yang tidak setuju. Argumen terkuat dari pihak lawan adalah {{isi argumen lawan}}. Menurut saya, argumen itu {{isi tanggapanmu}}.`);
-  parts.push(`[Penutup & Ajak Diskusi]\nJadi, apa kesimpulannya tentang ${T}? Dari semua bukti tadi, bagian mana yang menurutmu paling masuk akal? Tulis pendapatmu di kolom komentar.`);
-  return parts.join('\n\n');
+function hash(s) { let h = 0; for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0; return Math.abs(h).toString(36); }
+function normalizeIdeas(arr) {
+  if (!Array.isArray(arr)) return [];
+  return arr.filter((x) => x && typeof x.title === 'string' && x.title.trim()).slice(0, 15).map((x, i) => ({
+    id: 'i' + i + '-' + hash(x.title), title: x.title.trim().slice(0, 140), desc: String(x.desc || '').slice(0, 300),
+    type: String(x.type || 'Ide').slice(0, 30), badge: String(x.badge || 'Ide').slice(0, 24),
+    c: BADGE_KEYS[parseInt(hash(String(x.badge || x.type || i)), 36) % BADGE_KEYS.length],
+    angle: ANGLES[x.angle] ? x.angle : 'science', ai: true, fav: false
+  }));
+}
+function replaceHookLine(text, newHook) {
+  const lines = text.split('\n'); let seenTag = false;
+  for (let i = 0; i < lines.length; i++) {
+    const l = lines[i].trim(); if (!l) continue;
+    if (/^\[/.test(l)) { seenTag = true; continue; }
+    if (seenTag || i === 0) { lines[i] = newHook; return lines.join('\n'); }
+  }
+  return newHook + '\n' + text;
 }
 
 function csvEscape(v) { v = String(v ?? ''); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }

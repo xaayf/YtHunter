@@ -1,13 +1,15 @@
-# YT Hunter (PWA iPhone)
+# YT Hunter (PWA iPhone + Workers AI)
 
-Studio riset ide → naskah → storyboard → audit orisinalitas YouTube. Offline, data tersimpan di perangkat.
+Launchpad → ide (AI) → naskah (AI) → storyboard (AI) → AI Guard (metrik + review AI) → audit aset.
 
-## Deploy Cloudflare
-- Direct upload: upload isi folder `public/` (atau `ythunter-dist.zip`).
-- Workers Builds (GitHub): commit semua termasuk `public/`; tanpa build command, deploy command `npx wrangler deploy`.
+## Arsitektur
+- `public/` : PWA statis (HTML/CSS/JS, SW, manifest, ikon) — hasil `npm run build`, sudah di-commit.
+- `worker/index.js` : Worker, hanya menangani `/api/*` (Workers AI, model Llama 3.3 70B). Prompt ada di server; tidak butuh API key.
+- `wrangler.jsonc` : binding `AI` + `ASSETS`.
 
-## Edit & build
-`npm i && npm run build` → hasil di `public/` (versi SW otomatis berganti → user lihat banner "Versi baru tersedia").
+## Deploy
+Push ke `main` → Cloudflare Workers Builds (build command kosong, deploy `npx wrangler deploy`).
+Cek: `/api/health` harus `{"ok":true,"ai":true,...}`.
 
-## Install di iPhone
-Safari → buka URL → Share → Add to Home Screen.
+## Edit
+`npm i && npm run build`

@@ -15,7 +15,8 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('message', (e) => { if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting(); });
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const u = new URL(req.url);
+  if (req.method !== 'GET' || u.origin !== location.origin || u.pathname.startsWith('/api/')) return;
   if (req.mode === 'navigate') {
     e.respondWith(caches.match('index.html').then((r) => r || fetch(req)));
     return;

@@ -1,6 +1,6 @@
-const VERSION = 'b4417d52';
+const VERSION = '21414420';
 const CACHE = 'ythunter-' + VERSION;
-const FILES = ["./","index.html","app.css?v=b4417d52","app.js?v=b4417d52","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/apple-touch-icon.png","icons/favicon-32.png"];
+const FILES = ["./","index.html","app.css?v=21414420","app.js?v=21414420","manifest.webmanifest","icons/icon-192.png","icons/icon-512.png","icons/apple-touch-icon.png","icons/favicon-32.png"];
 
 self.addEventListener('install', (e) => {
   // Tidak skipWaiting otomatis: user yang menekan "Perbarui" supaya tidak ada reload mendadak.
@@ -15,7 +15,8 @@ self.addEventListener('activate', (e) => {
 self.addEventListener('message', (e) => { if (e.data && e.data.type === 'SKIP_WAITING') self.skipWaiting(); });
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const u = new URL(req.url);
+  if (req.method !== 'GET' || u.origin !== location.origin || u.pathname.startsWith('/api/')) return;
   if (req.mode === 'navigate') {
     e.respondWith(caches.match('index.html').then((r) => r || fetch(req)));
     return;

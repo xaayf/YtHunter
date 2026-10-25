@@ -4,48 +4,38 @@ const KEY = 'ythunter:v1';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ic = (n, c = 'w-4 h-4') => `<svg class="ic ${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
+const spin = (c = 'w-4 h-4') => ic('refresh-cw', c + ' animate-spin');
 
 /* ---------- State ---------- */
 let S = null;
-let mod = 2;          // modul aktif
+let mod = 1;              // launchpad dulu
 let scriptTab = 'naskah';
 let ideaFilter = 'all';
 let memStore = null;
+const busy = { ideas: false, review: false, scenes: false };
 
-function seedProject() {
-  const script = `[Hook: 0-10s]
-Tahukah kamu bahwa Segitiga Bermuda sebenarnya bukan tempat paling mematikan di lautan?
-
-[Konflik: 0:10 - 0:45]
-Fakta menarik yang sering ditutupi adalah data asuransi kapal Lloyd's of London yang mencatat jumlah kecelakaan di sana tidak lebih tinggi dari perairan sibuk lainnya. Jadi kenapa kita begitu terobsesi dengan mitos monster atau portal dimensi?
-
-[Opini Kritis & Studi Kasus: 0:45 - 2:00]
-Menurut analisis saya, jawabannya bukan di dasar samudra, melainkan di psikologi ketakutan manusia sendiri. Saat kapal USS Cyclops hilang di tahun 1918 tanpa jejak radio, publik lebih memilih dongeng misterius daripada menerima bahwa badai bisa menenggelamkan kapal dalam hitungan menit.
-
-[Jeda 1.5s]
-
-[Penutup]
-Menurutmu, teori mana yang paling masuk akal? Tulis di kolom komentar.`;
-  const p = {
-    id: uid(), title: 'Misteri Segitiga Bermuda', topic: 'Misteri Segitiga Bermuda', script, ideas: [], scenes: [], lastAudit: null,
-    assets: [
-      { id: uid(), name: 'Laut badai (footage stok)', kind: 'video', source: 'stock', dur: 4, usedBefore: 0, transform: 'zoom', overlay: true, start: '0:00', note: '' },
-      { id: uid(), name: 'Globe Bumi 3D standar', kind: 'image', source: 'stock', dur: 9, usedBefore: 2, transform: 'none', overlay: false, start: '0:15', note: 'Sering dipakai di video lain' },
-      { id: uid(), name: 'Arsip USS Cyclops (US Navy)', kind: 'doc', source: 'pd', dur: 27, usedBefore: 0, transform: 'info', overlay: true, start: '0:45', note: 'Tambah sorotan infografis' }
-    ],
-    createdAt: Date.now(), updatedAt: Date.now()
-  };
-  p.scenes = scenesFromScript(script, 130);
-  p.ideas = genIdeas(p.topic);
-  return p;
+function blankProject(title = 'Proyek Baru', topic = '') {
+  return { id: uid(), title, topic, script: '', ideas: [], scenes: [], assets: [], lastAudit: null, review: null, createdAt: Date.now(), updatedAt: Date.now() };
 }
-
 function load() {
   let raw = null;
   try { raw = localStorage.getItem(KEY); } catch (e) { raw = memStore; }
-  if (raw) { try { const d = JSON.parse(raw); if (d && Array.isArray(d.projects) && d.projects.length) { S = d; if (!S.wpm) S.wpm = 130; if (!S.projects.find((p) => p.id === S.activeId)) S.activeId = S.projects[0].id; return; } } catch (e) { /* korup → seed */ } }
-  const p = seedProject();
-  S = { v: 1, activeId: p.id, projects: [p], wpm: 130 };
+  if (raw) {
+    try {
+      const d = JSON.parse(raw);
+      if (d && Array.isArray(d.projects) && d.projects.length) {
+        S = d; if (!S.wpm) S.wpm = 130;
+        // buang proyek contoh bawaan versi lama (template) bila tak pernah disentuh
+        S.projects = S.projects.filter((p) => !(p.title === 'Misteri Segitiga Bermuda' && p.assets && p.assets[0] && p.assets[0].name === 'Laut badai (footage stok)'));
+        S.projects.forEach((p) => { p.ideas = (p.ideas || []).filter((i) => i.ai); p.review = p.review || null; (p.scenes || []).forEach((s) => { if (s.src === undefined) s.src = ''; }); });
+        if (!S.projects.length) S.projects.push(blankProject());
+        if (!S.projects.find((p) => p.id === S.activeId)) S.activeId = S.projects[0].id;
+        return;
+      }
+    } catch (e) { /* korup → blank */ }
+  }
+  const p = blankProject('Proyek Pertama');
+  S = { v: 2, activeId: p.id, projects: [p], wpm: 130 };
 }
 let saveTimer = null;
 function save(now) {
@@ -54,11 +44,24 @@ function save(now) {
     const p = P(); if (p) p.updatedAt = Date.now();
     const json = JSON.stringify(S);
     try { localStorage.setItem(KEY, json); } catch (e) { memStore = json; }
-    const b = $('#saveBadge'); if (b) b.textContent = 'Tersimpan ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
   };
   if (now) { clearTimeout(saveTimer); run(); } else { clearTimeout(saveTimer); saveTimer = setTimeout(run, 400); }
 }
 const P = () => S.projects.find((p) => p.id === S.activeId);
+
+/* ---------- AI client ---------- */
+async function ai(task, payload = {}) {
+  if (!navigator.onLine) throw new Error('Fitur AI butuh internet.');
+  const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 100000);
+  let r;
+  try { r = await fetch('/api/ai', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ task, ...payload }), signal: ctrl.signal }); }
+  catch (e) { throw new Error(e.name === 'AbortError' ? 'AI terlalu lama merespons, coba lagi.' : 'Tidak bisa terhubung ke AI.'); }
+  finally { clearTimeout(to); }
+  let j = null; try { j = await r.json(); } catch (e) { /* abaikan */ }
+  if (!r.ok || !j || !j.ok) throw new Error((j && j.error) || `AI error (${r.status})`);
+  return j.data;
+}
+const metricsLine = (an) => `skor ${an.score}%, ${an.nWords} kata, opini ${an.opinions}, pertanyaan ${an.questions}, jeda ${an.pauses.n}, klise [${an.cliches.join('; ')}], placeholder ${an.placeholders}`;
 
 /* ---------- UI helpers ---------- */
 let toastTimer;
@@ -66,23 +69,23 @@ function toast(msg) {
   const t = $('#toast'); $('#toastMsg').textContent = msg;
   t.classList.remove('opacity-0', 'translate-y-3');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.classList.add('opacity-0', 'translate-y-3'), 2300);
+  toastTimer = setTimeout(() => t.classList.add('opacity-0', 'translate-y-3'), 2800);
 }
 function openSheet(title, body, buttons = [], opts = {}) {
   const root = $('#sheetRoot'), sh = $('#sheet');
   sh.innerHTML = `
-    <div class="flex items-center justify-between px-4 pt-4 pb-3 border-b border-surface-border shrink-0">
+    <div class="flex items-center justify-between px-4 pt-4 pb-3 border-b border-white/10 shrink-0">
       <h3 class="text-sm font-bold text-white">${esc(title)}</h3>
-      <button data-sheet-close class="p-1.5 text-slate-400 active:text-white" aria-label="Tutup">${ic('x', 'w-5 h-5')}</button>
+      ${opts.locked ? '' : `<button data-sheet-close class="p-1.5 text-slate-400 active:text-white" aria-label="Tutup">${ic('x', 'w-5 h-5')}</button>`}
     </div>
     <div class="scroll px-4 py-3 text-xs space-y-3 flex-1 min-h-0">${body}</div>
-    ${buttons.length ? `<div class="px-4 py-3 border-t border-surface-border flex items-center justify-end gap-2 shrink-0">${buttons.map((b, i) => `<button data-sheet-btn="${i}" class="${b.cls || 'btn-ghost'}">${esc(b.label)}</button>`).join('')}</div>` : ''}`;
+    ${buttons.length ? `<div class="px-4 py-3 border-t border-white/10 flex items-center justify-end gap-2 shrink-0">${buttons.map((b, i) => `<button data-sheet-btn="${i}" class="${b.cls || 'btn-ghost'}">${esc(b.label)}</button>`).join('')}</div>` : ''}`;
   root.classList.remove('hidden');
-  sh._btns = buttons; sh._onClose = opts.onClose;
+  sh._btns = buttons; sh._onClose = opts.onClose; sh._locked = !!opts.locked;
   if (opts.focus) setTimeout(() => { const el = $(opts.focus, sh); el && el.focus(); }, 60);
 }
 function closeSheet() {
-  const sh = $('#sheet'); $('#sheetRoot').classList.add('hidden');
+  const sh = $('#sheet'); $('#sheetRoot').classList.add('hidden'); sh._locked = false;
   if (sh._onClose) { const f = sh._onClose; sh._onClose = null; f(); }
 }
 function confirmSheet(title, msg, okLabel = 'Lanjut', danger = false) {
@@ -93,11 +96,24 @@ function confirmSheet(title, msg, okLabel = 'Lanjut', danger = false) {
     ], { onClose: () => res(false) });
   });
 }
+/** Layar tunggu untuk panggilan AI panjang */
+async function withLoading(msg, fn) {
+  openSheet('AI bekerja', `<div class="flex items-center gap-3 py-4 text-sm text-slate-200">${spin('w-5 h-5 text-brand-400')}<span>${esc(msg)}</span></div><p class="text-[11px] text-slate-500">Biasanya 15–45 detik. Jangan tutup aplikasi.</p>`, [], { locked: true });
+  try { return await fn(); } finally { closeSheet(); }
+}
+async function withBtn(el, fn) {
+  if (!el || el.disabled) return;
+  const html = el.innerHTML; el.disabled = true; el.classList.add('opacity-70');
+  el.innerHTML = `${spin('w-3.5 h-3.5')} Memproses…`;
+  try { return await fn(); } finally { if (el.isConnected) { el.disabled = false; el.classList.remove('opacity-70'); el.innerHTML = html; } }
+}
 document.addEventListener('click', (e) => {
-  if (e.target.id === 'sheetRoot' || e.target.closest('[data-sheet-close]')) return closeSheet();
+  const sh = $('#sheet');
+  if (e.target.id === 'sheetRoot') { if (!sh._locked) closeSheet(); return; }
+  if (e.target.closest('[data-sheet-close]')) return closeSheet();
   const b = e.target.closest('[data-sheet-btn]');
   if (b) {
-    const sh = $('#sheet'); const btn = sh._btns[+b.dataset.sheetBtn];
+    const btn = sh._btns[+b.dataset.sheetBtn];
     const r = btn.fn ? btn.fn() : undefined;
     if (r !== false) { sh._onClose = null; closeSheet(); }
     return;
@@ -112,43 +128,57 @@ function switchModule(n) {
   mod = n;
   for (let i = 1; i <= 4; i++) {
     $('#view-' + i).classList.toggle('hidden', i !== n);
-    const t = $('#tab-' + i);
-    t.className = 'py-2 flex flex-col items-center gap-0.5 text-[10px] font-semibold ' + (i === n ? 'text-brand-400' : 'text-slate-500');
+    $('#tab-' + i).className = 'py-2.5 flex flex-col items-center gap-0.5 text-[10px] font-semibold ' + (i === n ? 'text-brand-400' : 'text-slate-500');
   }
   render();
   $('#view-' + n).scrollTop = 0;
 }
-function render() {
-  const p = P();
-  $('#projectTitleHeader').textContent = p.title || 'Tanpa judul';
-  [null, render1, render2, render3, render4][mod]();
-}
+function render() { [null, render1, render2, render3, render4][mod](); }
+const projectBar = () => `<button data-act="projects" class="glass-btn w-full flex items-center justify-between gap-2 px-3.5 py-2 text-left"><span class="min-w-0"><span class="block text-[10px] uppercase tracking-wider text-slate-500 font-bold">Proyek</span><span class="block text-xs font-semibold text-white truncate">${esc(P().title || 'Tanpa judul')}</span></span>${ic('chevron-down', 'w-4 h-4 text-slate-400')}</button>`;
 
-/* ---------- Modul 1: Riset ---------- */
+/* ---------- Modul 1: Launchpad ---------- */
 function render1() {
   const p = P();
+  const an = analyze(p.script, S.wpm);
+  const risky = p.assets.filter((a) => assessAsset(a).lvl === 2).length;
+  const tile = (act, extra, icon, label, val, sub, col) => `
+    <button data-act="${act}" ${extra} class="card p-3.5 text-left active:scale-[.97] transition space-y-1.5">
+      <span class="w-8 h-8 rounded-xl ${col} flex items-center justify-center">${ic(icon, 'w-4 h-4')}</span>
+      <span class="block text-[11px] text-slate-400 font-semibold">${label}</span>
+      <span class="block text-base font-bold text-white leading-tight">${val}</span>
+      <span class="block text-[10px] text-slate-500">${sub}</span>
+    </button>`;
   const ideas = p.ideas.filter((i) => ideaFilter === 'all' || i.fav);
   $('#view-1').innerHTML = `
-  <div class="max-w-5xl mx-auto p-3 md:p-6 space-y-4">
-    <div>
-      <h2 class="text-base font-bold text-white flex items-center gap-2">${ic('compass', 'w-5 h-5 text-brand-400')} Riset Ide Konten</h2>
-      <p class="text-xs text-slate-400 mt-0.5">Masukkan topik, dapatkan 15 sudut pandang berbeda. Semua dibuat di perangkat, tanpa API dan tanpa kuota.</p>
-    </div>
-    <div class="card p-3.5 space-y-2.5">
-      <label class="label" for="topicIn">Topik / niche utama</label>
-      <div class="flex gap-2">
-        <input id="topicIn" class="input" value="${esc(p.topic)}" placeholder="Contoh: Sejarah Romawi, AI coding, Segitiga Bermuda…" enterkeyhint="search" autocomplete="off">
-        <button data-act="genIdeas" class="btn-primary shrink-0">${ic('sparkles')} Cari</button>
+  <div class="max-w-5xl mx-auto px-4 space-y-4">
+    <div class="relative overflow-hidden rounded-3xl p-5 glass" style="background:linear-gradient(135deg,rgba(124,58,237,.38),rgba(79,70,229,.22) 55%,rgba(6,182,212,.14))">
+      <div class="absolute -top-10 -right-10 w-40 h-40 rounded-full bg-brand-500/30 blur-3xl"></div>
+      <div class="relative space-y-3">
+        <span class="chip bg-white/10 text-brand-300 border border-white/15">${ic('sparkles', 'w-3 h-3 mr-1')} Ditenagai AI</span>
+        <h1 class="text-[22px] leading-tight font-extrabold text-white">Dari ide sampai audit,<br>konten YouTube yang orisinal.</h1>
+        <p class="text-xs text-slate-300 leading-relaxed">Tulis topik, AI mencarikan 15 sudut pandang, menulis kerangka naskah, merancang storyboard, lalu mereview-nya.</p>
+        <div class="space-y-2">
+          <input id="topicIn" class="input" value="${esc(p.topic)}" placeholder="Mau bikin video tentang apa?" enterkeyhint="go" autocomplete="off">
+          <button data-act="genIdeas" class="btn-primary w-full !py-3 !text-sm" ${busy.ideas ? 'disabled' : ''}>${busy.ideas ? spin() + ' AI mencari ide…' : ic('sparkles', 'w-4 h-4') + ' Cari 15 ide dengan AI'}</button>
+        </div>
+        <div class="pt-1">${projectBar()}</div>
       </div>
     </div>
-    <div class="flex items-center justify-between">
-      <div class="flex items-center gap-2">
-        <button data-act="ideaFilter" data-f="all" class="chip ${ideaFilter === 'all' ? 'bg-brand-500/25 text-brand-300' : 'bg-surface-card text-slate-400'} !text-[11px] !px-3 !py-1">Semua ${p.ideas.length}</button>
-        <button data-act="ideaFilter" data-f="fav" class="chip ${ideaFilter === 'fav' ? 'bg-amber-500/25 text-amber-300' : 'bg-surface-card text-slate-400'} !text-[11px] !px-3 !py-1">★ Favorit ${p.ideas.filter((i) => i.fav).length}</button>
-      </div>
+
+    <div class="grid grid-cols-2 gap-3">
+      ${tile('mod', 'data-n="2"', 'file-pen-line', 'Naskah', p.script.trim() ? `${an.nWords} kata` : 'Kosong', p.script.trim() ? `Durasi ${fmtTime(an.totalSec)}` : 'Buat dengan AI', 'bg-brand-500/25 text-brand-300')}
+      ${tile('toStoryTile', '', 'clapperboard', 'Storyboard', `${p.scenes.length} scene`, p.scenes.length ? `${p.scenes.filter((s) => s.visual).length} punya visual` : 'Dari naskah', 'bg-indigo-500/25 text-indigo-300')}
+      ${tile('mod', 'data-n="3"', 'shield-alert', 'AI Guard', p.script.trim() ? an.score + '%' : '—', p.script.trim() ? `Risiko bot ${an.botRisk}%` : 'Skor orisinalitas', 'bg-emerald-500/25 text-emerald-300')}
+      ${tile('mod', 'data-n="4"', 'layers', 'Aset', `${p.assets.length} aset`, risky ? `${risky} berisiko` : 'Audit lisensi', 'bg-amber-500/25 text-amber-300')}
+    </div>
+
+    ${(p.ideas.length || busy.ideas) ? `
+    <div class="flex items-center gap-2">
+      <button data-act="ideaFilter" data-f="all" class="chip ${ideaFilter === 'all' ? 'bg-brand-500/30 text-brand-300' : 'bg-white/5 text-slate-400'} !text-[11px] !px-3 !py-1">Semua ${p.ideas.length}</button>
+      <button data-act="ideaFilter" data-f="fav" class="chip ${ideaFilter === 'fav' ? 'bg-amber-500/30 text-amber-300' : 'bg-white/5 text-slate-400'} !text-[11px] !px-3 !py-1">★ Favorit ${p.ideas.filter((i) => i.fav).length}</button>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-      ${ideas.length ? ideas.map((i, n) => `
+      ${busy.ideas ? Array.from({ length: 6 }, () => '<div class="skel h-32"></div>').join('') : ideas.length ? ideas.map((i) => `
       <div class="card p-3.5 flex flex-col justify-between gap-2.5">
         <div>
           <div class="flex items-center justify-between mb-1.5">
@@ -158,23 +188,24 @@ function render1() {
           <h4 class="text-[13px] font-bold text-white leading-snug">${esc(i.title)}</h4>
           <p class="text-[11px] text-slate-400 mt-1 leading-relaxed">${esc(i.desc)}</p>
         </div>
-        <div class="pt-2 border-t border-surface-border/60 flex items-center justify-between">
+        <div class="pt-2 border-t border-white/10 flex items-center justify-between">
           <span class="text-[10px] text-slate-500 font-medium">${esc(i.type)}</span>
-          <button data-act="useIdea" data-id="${i.id}" class="btn-ghost !py-1 !min-h-0 !text-[11px]">Pakai ide ${ic('arrow-right', 'w-3 h-3')}</button>
+          <button data-act="useIdea" data-id="${i.id}" class="btn-ghost !py-1 !min-h-0 !text-[11px]">${ic('sparkles', 'w-3 h-3')} Tulis naskah</button>
         </div>
-      </div>`).join('') : `<p class="text-xs text-slate-500 col-span-full text-center py-10">Belum ada ide favorit. Tap bintang pada kartu ide.</p>`}
-    </div>
+      </div>`).join('') : `<p class="text-xs text-slate-500 col-span-full text-center py-8">Belum ada ide favorit. Tap bintang pada kartu ide.</p>`}
+    </div>` : ''}
   </div>`;
-  $('#topicIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); ACT.genIdeas(); } });
+  $('#topicIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('[data-act=genIdeas]').click(); } });
 }
 
 /* ---------- Modul 2: Skrip & Storyboard ---------- */
 function render2() {
   const p = P();
-  const seg = (k, l, i) => `<button data-act="stab" data-t="${k}" class="flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 ${scriptTab === k ? 'bg-brand-600/25 text-brand-300 border border-brand-500/40' : 'text-slate-400'}">${ic(i, 'w-3.5 h-3.5')} ${l}</button>`;
+  const seg = (k, l, i) => `<button data-act="stab" data-t="${k}" class="flex-1 py-2 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 ${scriptTab === k ? 'bg-brand-600/30 text-brand-300 border border-brand-500/40' : 'text-slate-400'}">${ic(i, 'w-3.5 h-3.5')} ${l}</button>`;
   $('#view-2').innerHTML = `
-  <div class="max-w-5xl mx-auto p-3 md:p-6 space-y-3">
-    <div class="flex gap-1 p-1 rounded-xl bg-surface-dark border border-surface-border">${seg('naskah', 'Naskah', 'file-pen-line')}${seg('story', 'Storyboard', 'clapperboard')}</div>
+  <div class="max-w-5xl mx-auto px-4 space-y-3">
+    ${projectBar()}
+    <div class="glass rounded-2xl p-1 flex gap-1">${seg('naskah', 'Naskah', 'file-pen-line')}${seg('story', 'Storyboard', 'clapperboard')}</div>
     ${scriptTab === 'naskah' ? scriptPanel(p) : storyPanel(p)}
   </div>`;
   if (scriptTab === 'naskah') { const ta = $('#scriptInput'); ta.addEventListener('input', () => { P().script = ta.value; save(); updateScriptMeta(); }); updateScriptMeta(); }
@@ -184,64 +215,67 @@ function scriptPanel(p) {
     <div class="card p-3 space-y-2.5">
       <div class="flex items-center justify-between gap-2">
         <div>
-          <div class="text-xs font-bold text-white">Editor Naskah & Pacing</div>
+          <div class="text-xs font-bold text-white">Editor Naskah</div>
           <div id="wc" class="text-[10px] text-slate-400 font-mono"></div>
         </div>
         <div class="flex items-center gap-1.5">
-          <div class="flex items-center rounded-xl border border-surface-border bg-surface-card overflow-hidden">
-            <button data-act="wpm" data-d="-5" class="px-2.5 py-1.5 text-slate-300 active:bg-surface-highlight" aria-label="Pelan">−</button>
+          <div class="flex items-center rounded-xl overflow-hidden" style="background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12)">
+            <button data-act="wpm" data-d="-5" class="px-2.5 py-1.5 text-slate-300 active:bg-white/10" aria-label="Pelan">−</button>
             <span id="wpmLbl" class="px-1 text-[11px] font-mono text-cyan-300 w-[58px] text-center">${S.wpm} WPM</span>
-            <button data-act="wpm" data-d="5" class="px-2.5 py-1.5 text-slate-300 active:bg-surface-highlight" aria-label="Cepat">+</button>
+            <button data-act="wpm" data-d="5" class="px-2.5 py-1.5 text-slate-300 active:bg-white/10" aria-label="Cepat">+</button>
           </div>
-          <button data-act="gen" class="btn-primary !px-3">${ic('sparkles', 'w-3.5 h-3.5')} Generator</button>
+          <button data-act="gen" class="btn-primary !px-3">${ic('sparkles', 'w-3.5 h-3.5')} Tulis AI</button>
         </div>
       </div>
       <div class="flex flex-wrap gap-1.5">
-        ${['[Hook: 0-10s]|+Hook', '[Jeda 1.5s]|+Jeda', '[Opini Pribadi]|+Opini', '[Bukti & Sumber]|+Bukti', '[Penutup & Ajak Diskusi]|+Penutup'].map((x) => { const [t, l] = x.split('|'); return `<button data-act="tag" data-tag="${esc(t)}" class="px-2.5 py-1.5 rounded-lg bg-surface-card border border-surface-border text-[11px] font-mono text-slate-300 active:bg-surface-highlight">${l}</button>`; }).join('')}
-        <button data-act="clean" class="ml-auto px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[11px] font-semibold text-amber-300 flex items-center gap-1">${ic('wand-sparkles', 'w-3 h-3')} Bersihkan Klise</button>
+        ${['[Hook: 0-10s]|+Hook', '[Jeda 1.5s]|+Jeda', '[Opini Pribadi]|+Opini', '[Bukti & Sumber]|+Bukti', '[Penutup & Ajak Diskusi]|+Penutup'].map((x) => { const [t, l] = x.split('|'); return `<button data-act="tag" data-tag="${esc(t)}" class="px-2.5 py-1.5 rounded-lg text-[11px] font-mono text-slate-300 active:bg-white/10" style="background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1)">${l}</button>`; }).join('')}
+        <button data-act="clean" class="ml-auto px-2.5 py-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-[11px] font-semibold text-amber-300 flex items-center gap-1">${ic('wand-sparkles', 'w-3 h-3')} Poles AI</button>
       </div>
-      <textarea id="scriptInput" class="input min-h-[42dvh] leading-relaxed font-mono !text-[15px] md:!text-xs resize-y" spellcheck="false" placeholder="Ketik atau generate naskah di sini…">${esc(p.script)}</textarea>
+      <textarea id="scriptInput" class="input min-h-[42dvh] leading-relaxed font-mono !text-[15px] md:!text-xs resize-y" spellcheck="false" placeholder="Ketik naskah di sini, atau tekan “Tulis AI” untuk membuat kerangka dari topik…">${esc(p.script)}</textarea>
       <div id="botWarn" class="rounded-xl p-2.5 text-[11px] flex items-start gap-2"></div>
       <div class="flex gap-2">
         <button data-act="copyScript" class="btn-ghost flex-1">${ic('copy', 'w-3.5 h-3.5')} Salin</button>
-        <button data-act="toStory" class="btn-ghost flex-1">${ic('clapperboard', 'w-3.5 h-3.5')} Ke Storyboard</button>
-        <button data-act="mod" data-n="3" class="btn-primary flex-1">AI Guard ${ic('arrow-right', 'w-3.5 h-3.5')}</button>
+        <button data-act="toStory" class="btn-ghost flex-1">${ic('clapperboard', 'w-3.5 h-3.5')} Storyboard</button>
+        <button data-act="mod" data-n="3" class="btn-primary flex-1">Guard ${ic('arrow-right', 'w-3.5 h-3.5')}</button>
       </div>
     </div>`;
 }
 function updateScriptMeta() {
   const an = analyze(P().script, S.wpm);
-  $('#wc').textContent = `${an.nWords} kata • ${fmtTime(an.totalSec)} (termasuk jeda ${an.pauses.sec.toFixed(1)}s)`;
+  const wc = $('#wc'); if (!wc) return;
+  wc.textContent = `${an.nWords} kata • ${fmtTime(an.totalSec)} (jeda ${an.pauses.sec.toFixed(1)}s)`;
   $('#wpmLbl').textContent = S.wpm + ' WPM';
   const w = $('#botWarn');
   const bad = an.cliches.length || an.placeholders;
   w.className = 'rounded-xl p-2.5 text-[11px] flex items-start gap-2 ' + (bad ? 'bg-amber-500/10 text-amber-300 border border-amber-500/20' : 'bg-emerald-500/10 text-emerald-300 border border-emerald-500/20');
-  w.innerHTML = `${ic(bad ? 'triangle-alert' : 'circle-check', 'w-4 h-4 mt-0.5')}<div>${
+  w.innerHTML = `${ic(bad ? 'triangle-alert' : 'circle-check', 'w-4 h-4 mt-0.5 shrink-0')}<div>${
     an.cliches.length ? `<b>Frasa klise:</b> “${esc(an.cliches.join('”, “'))}”. ` : ''}${
-    an.placeholders ? `<b>${an.placeholders} placeholder {{…}}</b> belum diisi. ` : ''}${
-    bad ? '' : 'Tidak ada frasa klise bot atau placeholder tersisa.'}</div>`;
+    an.placeholders ? `<b>${an.placeholders} placeholder {{…}}</b> perlu diisi data / sumber nyata. ` : ''}${
+    bad ? '' : (an.nWords ? 'Tidak ada frasa klise bot atau placeholder tersisa.' : 'Naskah kosong.')}</div>`;
 }
+const SCOL = { Hook: 'from-purple-600/60 to-indigo-700/60', Konflik: 'from-indigo-600/60 to-blue-800/60', Bukti: 'from-cyan-600/50 to-sky-800/60', Analisis: 'from-fuchsia-600/50 to-purple-800/60', Transisi: 'from-slate-600/60 to-slate-800/60', Penutup: 'from-emerald-600/50 to-teal-800/60', Isi: 'from-slate-600/60 to-slate-800/60' };
+const SICN = { Hook: 'film', Konflik: 'activity', Bukti: 'file-text', Analisis: 'mic', Transisi: 'clock', Penutup: 'check', Isi: 'image' };
 function storyPanel(p) {
   const an = analyze(p.script, S.wpm);
   const end = p.scenes.length ? Math.max(...p.scenes.map((s) => s.end)) : 0;
-  const COL = { Hook: 'from-purple-600/60 to-indigo-700/60', Konflik: 'from-indigo-600/60 to-blue-800/60', Bukti: 'from-cyan-600/50 to-sky-800/60', Analisis: 'from-fuchsia-600/50 to-purple-800/60', Transisi: 'from-slate-600/60 to-slate-800/60', Penutup: 'from-emerald-600/50 to-teal-800/60', Isi: 'from-slate-600/60 to-slate-800/60' };
-  const ICN = { Hook: 'film', Konflik: 'activity', Bukti: 'file-text', Analisis: 'mic', Transisi: 'clock', Penutup: 'check', Isi: 'image' };
+  const missing = p.scenes.filter((s) => !s.visual).length;
   return `
     <div class="flex items-center justify-between gap-2">
       <div>
         <div class="text-xs font-bold text-white">Timeline & Storyboard</div>
-        <div class="text-[10px] text-slate-400 font-mono">${p.scenes.length} scene • storyboard ${fmtTime(end)} / naskah ${fmtTime(an.totalSec)}</div>
+        <div class="text-[10px] text-slate-400 font-mono">${p.scenes.length} scene • ${fmtTime(end)} / naskah ${fmtTime(an.totalSec)}</div>
       </div>
       <div class="flex gap-1.5">
         <button data-act="scenesFromScript" class="btn-ghost !px-2.5">${ic('refresh-cw', 'w-3.5 h-3.5')} Dari naskah</button>
-        <button data-act="sceneAdd" class="btn-primary !px-2.5">${ic('plus', 'w-3.5 h-3.5')} Scene</button>
+        <button data-act="sceneAdd" class="btn-ghost !px-2.5">${ic('plus', 'w-3.5 h-3.5')}</button>
       </div>
     </div>
+    ${p.scenes.length ? `<button data-act="sceneAI" class="btn-primary w-full">${busy.scenes ? spin('w-3.5 h-3.5') + ' AI merancang visual…' : ic('sparkles', 'w-3.5 h-3.5') + (missing ? ` Saran visual AI (${missing} scene kosong)` : ' Buat ulang semua visual dengan AI')}</button>` : ''}
     <div class="space-y-2.5">
       ${p.scenes.length ? p.scenes.map((s, i) => `
       <div class="card p-3 flex gap-3">
-        <div class="w-20 h-[72px] rounded-xl bg-gradient-to-br ${COL[s.type] || COL.Isi} flex flex-col items-center justify-center shrink-0 text-white/90">
-          ${ic(ICN[s.type] || 'image', 'w-5 h-5')}
+        <div class="w-20 h-[72px] rounded-xl bg-gradient-to-br ${SCOL[s.type] || SCOL.Isi} flex flex-col items-center justify-center shrink-0 text-white/90 ring-1 ring-white/10">
+          ${ic(SICN[s.type] || 'image', 'w-5 h-5')}
           <span class="mt-1 text-[9px] font-mono bg-black/50 rounded px-1">${fmtTime(s.start)}–${fmtTime(s.end)}</span>
         </div>
         <div class="flex-1 min-w-0 space-y-1">
@@ -249,16 +283,16 @@ function storyPanel(p) {
             <span class="text-xs font-bold text-white truncate">${i + 1}. ${esc(s.title)}</span>
             <span class="chip bg-brand-500/20 text-brand-300 shrink-0">${esc(s.type)}</span>
           </div>
-          <p class="text-[11px] text-slate-400 leading-snug">${esc(s.visual)}</p>
-          <div class="text-[10px] text-cyan-400 truncate">${ic('volume-2', 'w-3 h-3 inline -mt-0.5')} ${esc(s.audio)} • ${esc(s.motion)}</div>
+          <p class="text-[11px] ${s.visual ? 'text-slate-400' : 'text-slate-600 italic'} leading-snug">${esc(s.visual || 'Visual belum diisi — pakai Saran visual AI atau edit manual.')}</p>
+          ${s.audio || s.motion ? `<div class="text-[10px] text-cyan-400 truncate">${ic('volume-2', 'w-3 h-3 inline -mt-0.5')} ${esc(s.audio)}${s.audio && s.motion ? ' • ' : ''}${esc(s.motion)}</div>` : ''}
           <div class="flex items-center gap-1 pt-1">
-            <button data-act="sceneMove" data-id="${s.id}" data-d="-1" class="p-1.5 rounded-lg bg-surface-darkest text-slate-400 ${i === 0 ? 'opacity-30' : ''}" aria-label="Naik">${ic('arrow-up', 'w-3.5 h-3.5')}</button>
-            <button data-act="sceneMove" data-id="${s.id}" data-d="1" class="p-1.5 rounded-lg bg-surface-darkest text-slate-400 ${i === p.scenes.length - 1 ? 'opacity-30' : ''}" aria-label="Turun">${ic('arrow-down', 'w-3.5 h-3.5')}</button>
-            <button data-act="sceneEdit" data-id="${s.id}" class="p-1.5 rounded-lg bg-surface-darkest text-slate-300 ml-auto" aria-label="Edit">${ic('pencil', 'w-3.5 h-3.5')}</button>
-            <button data-act="sceneDel" data-id="${s.id}" class="p-1.5 rounded-lg bg-surface-darkest text-rose-400" aria-label="Hapus">${ic('trash-2', 'w-3.5 h-3.5')}</button>
+            <button data-act="sceneMove" data-id="${s.id}" data-d="-1" class="p-1.5 rounded-lg bg-black/25 text-slate-400 ${i === 0 ? 'opacity-30' : ''}" aria-label="Naik">${ic('arrow-up', 'w-3.5 h-3.5')}</button>
+            <button data-act="sceneMove" data-id="${s.id}" data-d="1" class="p-1.5 rounded-lg bg-black/25 text-slate-400 ${i === p.scenes.length - 1 ? 'opacity-30' : ''}" aria-label="Turun">${ic('arrow-down', 'w-3.5 h-3.5')}</button>
+            <button data-act="sceneEdit" data-id="${s.id}" class="p-1.5 rounded-lg bg-black/25 text-slate-300 ml-auto" aria-label="Edit">${ic('pencil', 'w-3.5 h-3.5')}</button>
+            <button data-act="sceneDel" data-id="${s.id}" class="p-1.5 rounded-lg bg-black/25 text-rose-400" aria-label="Hapus">${ic('trash-2', 'w-3.5 h-3.5')}</button>
           </div>
         </div>
-      </div>`).join('') : `<div class="card p-6 text-center text-xs text-slate-500">Storyboard kosong. Tekan <b class="text-slate-300">Dari naskah</b> untuk membuat scene otomatis dengan durasi hitungan nyata.</div>`}
+      </div>`).join('') : `<div class="card p-6 text-center text-xs text-slate-500">Storyboard kosong. Tekan <b class="text-slate-300">Dari naskah</b> untuk membuat scene dengan durasi hitungan nyata, lalu minta AI merancang visualnya.</div>`}
     </div>
     <div class="flex justify-between pt-1">
       <button data-act="stab" data-t="naskah" class="btn-ghost">${ic('arrow-left', 'w-3.5 h-3.5')} Naskah</button>
@@ -283,25 +317,28 @@ function render3() {
   const p = P(); const an = analyze(p.script, S.wpm);
   const C = 326.7, off = C - (an.score / 100) * C;
   const tone = an.score >= 75 ? ['#8b5cf6', 'Kuat', 'text-emerald-400'] : an.score >= 55 ? ['#f59e0b', 'Perlu Opini Unik', 'text-amber-400'] : ['#f43f5e', 'Berisiko Repetitif', 'text-rose-400'];
-  const bar = (l, v, col, extra = '') => `<div><div class="flex justify-between text-slate-400 mb-1 text-xs"><span>${l}</span><span class="text-white font-mono font-bold">${v}%${extra}</span></div><div class="w-full bg-surface-darkest h-2 rounded-full overflow-hidden"><div class="${col} h-2 rounded-full transition-all duration-700" style="width:${v}%"></div></div></div>`;
+  const bar = (l, v, col, extra = '') => `<div><div class="flex justify-between text-slate-400 mb-1 text-xs"><span>${l}</span><span class="text-white font-mono font-bold">${v}%${extra}</span></div><div class="w-full bg-black/30 h-2 rounded-full overflow-hidden"><div class="${col} h-2 rounded-full transition-all duration-700" style="width:${v}%"></div></div></div>`;
   const risk = an.botRisk < 25 ? ['Rendah', 'bg-emerald-400'] : an.botRisk < 45 ? ['Sedang', 'bg-amber-400'] : ['Tinggi', 'bg-rose-500'];
   const TIPC = { ok: ['text-emerald-400', '✓'], warn: ['text-amber-400', '•'], bad: ['text-rose-400', '!'] };
   pacing.bars = pacingSegments(p.script);
   const maxW = Math.max(1, ...pacing.bars.map((b) => b.w || 0));
+  const rv = p.review && p.review.data;
   $('#view-3').innerHTML = `
-  <div class="max-w-5xl mx-auto p-3 md:p-6 space-y-3">
+  <div class="max-w-5xl mx-auto px-4 space-y-3">
+    ${projectBar()}
     <div>
       <h2 class="text-base font-bold text-white flex items-center gap-2">${ic('shield-alert', 'w-5 h-5 text-brand-400')} AI Guard & Pacing</h2>
-      <p class="text-xs text-slate-400 mt-0.5">Analisis heuristik di perangkat: pola repetitif, opini, bukti, dan ritme bicara. <span class="text-slate-500">Ini estimasi internal, bukan hasil deteksi resmi YouTube.</span></p>
+      <p class="text-xs text-slate-400 mt-0.5">Metrik dihitung di perangkat; review kualitatif oleh AI. <span class="text-slate-500">Ini estimasi internal, bukan hasil deteksi resmi YouTube.</span></p>
     </div>
+    ${!an.nWords ? `<div class="card p-6 text-center text-xs text-slate-500">Naskah masih kosong. Buat naskah di tab Skrip dulu.</div>` : ''}
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       <div class="card p-4">
         <div class="flex items-center justify-between"><span class="text-xs font-bold text-white uppercase tracking-wider">Skor Orisinalitas</span><span class="text-[10px] text-slate-500">${an.nWords} kata</span></div>
         <div class="my-3 flex items-center justify-center relative">
-          <svg viewBox="0 0 128 128" class="w-32 h-32 -rotate-90"><circle cx="64" cy="64" r="52" stroke="#1f2335" stroke-width="10" fill="none"/><circle cx="64" cy="64" r="52" stroke="${tone[0]}" stroke-width="10" fill="none" stroke-dasharray="${C}" stroke-dashoffset="${off}" stroke-linecap="round"/></svg>
+          <svg viewBox="0 0 128 128" class="w-32 h-32 -rotate-90"><circle cx="64" cy="64" r="52" stroke="rgba(255,255,255,.08)" stroke-width="10" fill="none"/><circle cx="64" cy="64" r="52" stroke="${tone[0]}" stroke-width="10" fill="none" stroke-dasharray="${C}" stroke-dashoffset="${off}" stroke-linecap="round"/></svg>
           <div class="absolute inset-0 flex flex-col items-center justify-center"><span class="text-3xl font-black text-white">${an.score}%</span><span class="text-[10px] font-bold uppercase tracking-wider ${tone[2]}">${tone[1]}</span></div>
         </div>
-        <div class="text-[11px] text-slate-400 bg-surface-card/60 p-2.5 rounded-xl border border-surface-border grid grid-cols-3 gap-2 text-center">
+        <div class="text-[11px] text-slate-400 bg-black/20 p-2.5 rounded-xl border border-white/10 grid grid-cols-3 gap-2 text-center">
           <div><div class="text-white font-mono text-sm">${an.opinions}</div>opini</div>
           <div><div class="text-white font-mono text-sm">${an.questions}</div>pertanyaan</div>
           <div><div class="text-white font-mono text-sm">${an.pauses.n}</div>jeda</div>
@@ -315,16 +352,36 @@ function render3() {
         ${bar('Risiko pola bot', an.botRisk, risk[1], ` (${risk[0]})`)}
       </div>
     </div>
-    <div class="card p-4 space-y-2">
-      <div class="flex items-center justify-between"><span class="text-xs font-bold text-white uppercase tracking-wider">Tindakan Penyempurnaan</span><span class="chip bg-amber-500/20 text-amber-300">${an.tips.filter((t) => t.k !== 'ok').length} saran</span></div>
-      ${an.tips.map((t) => `<div class="p-2.5 rounded-xl bg-surface-card border border-surface-border flex items-start gap-2.5"><span class="${TIPC[t.k][0]} font-bold w-3 text-center mt-px">${TIPC[t.k][1]}</span><div class="flex-1 min-w-0"><p class="font-medium text-white text-[12px]">${esc(t.t)}</p><p class="text-[11px] text-slate-400">${esc(t.d)}</p></div>${t.act ? `<button data-act="tipAct" data-a="${esc(t.act)}" class="btn-ghost !py-1 !min-h-0 !text-[11px] shrink-0">Terapkan</button>` : ''}</div>`).join('')}
+
+    <div class="card p-4 space-y-2.5">
+      <div class="flex items-center justify-between gap-2">
+        <div><h3 class="text-xs font-bold text-white flex items-center gap-1.5">${ic('sparkles', 'w-4 h-4 text-brand-400')} Review Editor AI</h3><p class="text-[11px] text-slate-400">Penilaian kritis atas hook, analisis, bukti, dan klise.</p></div>
+        <button data-act="review" class="btn-primary shrink-0" ${busy.review ? 'disabled' : ''}>${busy.review ? spin('w-3.5 h-3.5') + ' Menilai…' : ic('sparkles', 'w-3.5 h-3.5') + (rv ? ' Ulangi' : ' Review')}</button>
+      </div>
+      ${rv ? `
+        <p class="text-[12px] text-slate-200 leading-relaxed">${esc(rv.summary)}</p>
+        ${(rv.strengths || []).length ? `<ul class="text-[11px] text-emerald-300 space-y-0.5">${rv.strengths.map((x) => `<li>✓ ${esc(x)}</li>`).join('')}</ul>` : ''}
+        ${(rv.issues || []).map((it, n) => `<div class="p-2.5 rounded-xl bg-black/20 border border-white/10 space-y-1">
+            ${it.quote ? `<p class="text-[11px] text-slate-400 italic">“${esc(it.quote)}”</p>` : ''}
+            <p class="text-[12px] text-amber-300 font-medium">${esc(it.problem)}</p>
+            <p class="text-[11px] text-slate-300">${esc(it.fix)}</p>
+            ${it.quote && it.fix && P().script.includes(it.quote) ? `<button data-act="applyFix" data-n="${n}" class="btn-ghost !py-1 !min-h-0 !text-[11px]">${ic('check', 'w-3 h-3')} Terapkan perbaikan</button>` : ''}
+          </div>`).join('')}
+        ${(rv.hook_alternatives || []).length ? `<div class="space-y-1.5"><p class="text-[11px] font-bold text-white">Alternatif hook</p>${rv.hook_alternatives.map((h, n) => `<div class="p-2.5 rounded-xl bg-black/20 border border-white/10 flex items-start gap-2"><p class="flex-1 text-[11px] text-slate-200">${esc(h)}</p><button data-act="useHook" data-n="${n}" class="btn-ghost !py-1 !min-h-0 !text-[11px] shrink-0">Pakai</button></div>`).join('')}</div>` : ''}
+        <p class="text-[10px] text-slate-600">Review dibuat ${new Date(p.review.at).toLocaleString('id-ID', { dateStyle: 'short', timeStyle: 'short' })}. Verifikasi sendiri sebelum dipakai.</p>` : `<p class="text-[11px] text-slate-500">Belum direview.</p>`}
     </div>
+
+    <div class="card p-4 space-y-2">
+      <div class="flex items-center justify-between"><span class="text-xs font-bold text-white uppercase tracking-wider">Tindakan Cepat</span><span class="chip bg-amber-500/20 text-amber-300">${an.tips.filter((t) => t.k !== 'ok').length} saran</span></div>
+      ${an.tips.map((t) => `<div class="p-2.5 rounded-xl bg-black/20 border border-white/10 flex items-start gap-2.5"><span class="${TIPC[t.k][0]} font-bold w-3 text-center mt-px">${TIPC[t.k][1]}</span><div class="flex-1 min-w-0"><p class="font-medium text-white text-[12px]">${esc(t.t)}</p><p class="text-[11px] text-slate-400">${esc(t.d)}</p></div>${t.act ? `<button data-act="tipAct" data-a="${esc(t.act)}" class="btn-ghost !py-1 !min-h-0 !text-[11px] shrink-0">Terapkan</button>` : ''}</div>`).join('')}
+    </div>
+
     <div class="card p-4 space-y-3">
       <div class="flex items-center justify-between gap-2">
-        <div><h3 class="text-xs font-bold text-white flex items-center gap-1.5">${ic('activity', 'w-4 h-4 text-cyan-400')} Visualizer Ritme Bicara</h3><p class="text-[11px] text-slate-400">Setiap batang = satu kalimat; tinggi = panjang kalimat.</p></div>
+        <div><h3 class="text-xs font-bold text-white flex items-center gap-1.5">${ic('activity', 'w-4 h-4 text-cyan-400')} Visualizer Ritme Bicara</h3><p class="text-[11px] text-slate-400">Satu batang = satu kalimat; tinggi = panjang kalimat.</p></div>
         <span class="chip bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 !text-[11px]">${S.wpm} WPM</span>
       </div>
-      <div id="wave" class="h-24 bg-surface-darkest rounded-xl p-3 flex items-center gap-[3px] overflow-x-auto border border-surface-border">
+      <div id="wave" class="h-24 bg-black/25 rounded-xl p-3 flex items-center gap-[3px] overflow-x-auto border border-white/10">
         ${pacing.bars.length ? pacing.bars.map((b, i) => b.pause ? `<div data-i="${i}" class="w-1.5 shrink-0 rounded-full bg-amber-400 h-3" title="Jeda ${b.pause}s"></div>` : `<div data-i="${i}" class="w-1.5 shrink-0 rounded-full ${b.q ? 'bg-rose-400' : b.op ? 'bg-purple-400' : 'bg-cyan-400'} opacity-70" style="height:${Math.max(14, Math.round((b.w / maxW) * 100))}%" title="${b.w} kata"></div>`).join('') : `<span class="text-xs text-slate-500 mx-auto">Belum ada kalimat.</span>`}
       </div>
       <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-400">
@@ -335,7 +392,7 @@ function render3() {
       </div>
       <button id="btnPlay" data-act="play" class="btn-ghost w-full text-cyan-300">${ic('play', 'w-3.5 h-3.5')} Putar simulasi suara (${S.wpm} WPM)</button>
     </div>
-    <div class="flex justify-between"><button data-act="mod" data-n="2" class="btn-ghost">${ic('arrow-left', 'w-3.5 h-3.5')} Edit Skrip</button><button data-act="mod" data-n="4" class="btn-primary">Aset ${ic('arrow-right', 'w-3.5 h-3.5')}</button></div>
+    <div class="flex justify-between"><button data-act="mod" data-n="2" class="btn-ghost">${ic('arrow-left', 'w-3.5 h-3.5')} Skrip</button><button data-act="mod" data-n="4" class="btn-primary">Aset ${ic('arrow-right', 'w-3.5 h-3.5')}</button></div>
   </div>`;
 }
 function stopPacing() {
@@ -375,11 +432,12 @@ function render4() {
   const L = [['emerald', 'Aman'], ['amber', 'Perlu Cek'], ['rose', 'Berisiko']];
   const au = p.lastAudit;
   $('#view-4').innerHTML = `
-  <div class="max-w-5xl mx-auto p-3 md:p-6 space-y-3">
+  <div class="max-w-5xl mx-auto px-4 space-y-3">
+    ${projectBar()}
     <div class="flex items-start justify-between gap-2">
       <div>
-        <h2 class="text-base font-bold text-white flex items-center gap-2">${ic('layers', 'w-5 h-5 text-brand-400')} Audit Aset Visual & Audio</h2>
-        <p class="text-xs text-slate-400 mt-0.5">Catat tiap aset; status dihitung dari sumber, transformasi, durasi, dan riwayat pemakaian.</p>
+        <h2 class="text-base font-bold text-white flex items-center gap-2">${ic('layers', 'w-5 h-5 text-brand-400')} Audit Aset</h2>
+        <p class="text-xs text-slate-400 mt-0.5">Status dihitung dari sumber, transformasi, durasi, dan riwayat pemakaian.</p>
       </div>
       <button data-act="assetAdd" class="btn-primary shrink-0">${ic('plus', 'w-3.5 h-3.5')} Aset</button>
     </div>
@@ -395,13 +453,13 @@ function render4() {
           <span>Transformasi: ${esc(TRANSFORMS[a.transform || 'none'])}</span><span>Overlay teks: ${a.overlay ? 'ya' : 'tidak'}</span><span>Dipakai sebelumnya: ${+a.usedBefore || 0}×</span>
         </div>
         ${a.note ? `<p class="text-[11px] text-slate-400 italic">${esc(a.note)}</p>` : ''}
-        <div class="flex gap-1.5 pt-1 border-t border-surface-border/60">
+        <div class="flex gap-1.5 pt-1 border-t border-white/10">
           <button data-act="assetEdit" data-id="${a.id}" class="btn-ghost !py-1 !min-h-0 !text-[11px]">${ic('pencil', 'w-3 h-3')} Edit</button>
           <button data-act="assetDel" data-id="${a.id}" class="btn-danger !py-1 !min-h-0 !text-[11px] ml-auto">${ic('trash-2', 'w-3 h-3')}</button>
         </div>
       </div>`; }).join('') : `<div class="card p-6 text-center text-xs text-slate-500 md:col-span-2">Belum ada aset. Tambahkan klip, gambar, atau audio yang akan dipakai.</div>`}
     </div>
-    <div class="card p-4 space-y-3 border-brand-500/40 bg-gradient-to-br from-surface-card to-brand-950/40">
+    <div class="card p-4 space-y-3" style="border-color:rgba(139,92,246,.4)">
       <div class="flex items-start gap-2">${ic('shield-check', 'w-5 h-5 text-emerald-400 mt-0.5')}<div><h3 class="text-xs font-bold text-white">Audit Kesiapan Produksi (YPP)</h3><p class="text-[11px] text-slate-400 leading-relaxed">Memeriksa naskah, storyboard, dan semua aset sekaligus. Hasilnya panduan kerja, bukan jaminan monetisasi.</p></div></div>
       <button data-act="audit" class="btn-primary w-full !py-2.5">${ic('list-checks', 'w-4 h-4')} Jalankan Audit Final</button>
       ${au ? auditHTML(au) : ''}
@@ -423,11 +481,12 @@ const val = (id) => ($('#' + id) || {}).value;
 
 function sceneSheet(sc) {
   const isNew = !sc;
-  const s = sc || { title: '', type: 'Isi', start: 0, end: 10, ...SCENE_PRESET.Isi };
+  const s = sc || { title: '', type: 'Isi', start: 0, end: 10, visual: '', audio: '', motion: '', src: '' };
+  const types = ['Hook', 'Konflik', 'Bukti', 'Analisis', 'Transisi', 'Penutup', 'Isi'];
   openSheet(isNew ? 'Scene baru' : 'Edit scene', `
     <div><label class="label">Judul</label><input id="f_title" class="input" value="${esc(s.title)}" placeholder="Mis. Studi kasus utama"></div>
     <div class="grid grid-cols-3 gap-2">
-      <div><label class="label">Tipe</label><select id="f_type" class="input">${Object.keys(SCENE_PRESET).map((t) => `<option ${t === s.type ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
+      <div><label class="label">Tipe</label><select id="f_type" class="input">${types.map((t) => `<option ${t === s.type ? 'selected' : ''}>${t}</option>`).join('')}</select></div>
       <div><label class="label">Mulai (dtk)</label><input id="f_start" type="number" inputmode="decimal" min="0" class="input" value="${Math.round(s.start)}"></div>
       <div><label class="label">Selesai (dtk)</label><input id="f_end" type="number" inputmode="decimal" min="0" class="input" value="${Math.round(s.end)}"></div>
     </div>
@@ -442,7 +501,7 @@ function sceneSheet(sc) {
       const st = Math.max(0, +val('f_start') || 0), en = Math.max(st + 1, +val('f_end') || st + 10);
       const data = { title, type: val('f_type'), start: st, end: en, visual: val('f_visual'), audio: val('f_audio'), motion: val('f_motion') };
       const p = P();
-      if (isNew) p.scenes.push({ id: uid(), ...data }); else Object.assign(sc, data);
+      if (isNew) p.scenes.push({ id: uid(), src: '', ...data }); else Object.assign(sc, data);
       save(); render(); toast('Scene disimpan');
     } }
   ], { focus: '#f_title' });
@@ -473,47 +532,69 @@ function assetSheet(a) {
     } }
   ], { focus: '#f_name' });
 }
-function genSheet() {
+
+/** Tulis naskah via AI; idea (opsional) memberi judul & sudut pandang */
+async function writeScript({ topic, title, angle, tone, minutes, notes }) {
   const p = P();
-  openSheet('Generator Naskah', `
-    <p class="text-slate-400 leading-relaxed">Membuat kerangka naskah anti-generik. Bagian <code class="text-brand-300 font-mono">{{…}}</code> sengaja kosong: isi dengan data dan sumber nyata, jangan dikarang.</p>
-    <div><label class="label">Topik</label><input id="g_topic" class="input" value="${esc(p.topic)}"></div>
+  const d = await withLoading('AI menulis naskah…', () => ai('script', { topic, title, angle, tone, minutes, notes }));
+  if (!d || !d.text || d.text.length < 40) throw new Error('AI tidak mengembalikan naskah, coba lagi.');
+  p.topic = topic; p.title = title || topic; p.script = d.text; p.review = null;
+  p.scenes = scenesFromScript(p.script, S.wpm);
+  save(true); scriptTab = 'naskah'; switchModule(2);
+  toast('Naskah siap — isi bagian {{…}} dengan data nyata');
+  fillScenes(p, false); // visual storyboard menyusul di latar belakang
+}
+async function fillScenes(p, all) {
+  const targets = p.scenes.filter((s) => all || !s.visual);
+  if (!targets.length || busy.scenes) return;
+  busy.scenes = true; if (mod === 2 && scriptTab === 'story') render();
+  try {
+    const d = await ai('scenes', { scenes: targets.map((s) => ({ title: s.title, text: s.src })) });
+    const arr = Array.isArray(d && d.scenes) ? d.scenes : [];
+    targets.forEach((s, i) => { const r = arr[i]; if (r) { s.visual = String(r.visual || '').slice(0, 280); s.audio = String(r.audio || '').slice(0, 100); s.motion = String(r.motion || '').slice(0, 100); } });
+    save(true); toast(`Visual AI terisi (${Math.min(arr.length, targets.length)} scene)`);
+  } catch (e) { toast('Visual AI gagal: ' + e.message); }
+  finally { busy.scenes = false; if (mod === 2 || mod === 1) render(); }
+}
+function genSheet(preset = {}) {
+  const p = P();
+  openSheet('Tulis Naskah dengan AI', `
+    <p class="text-slate-400 leading-relaxed">AI membuat naskah dari topikmu. Data spesifik sengaja ditandai <code class="text-brand-300 font-mono">{{isi: …}}</code> agar kamu isi dengan sumber nyata, bukan karangan.</p>
+    <div><label class="label">Topik</label><input id="g_topic" class="input" value="${esc(preset.topic || p.topic)}" placeholder="Mis. Sejarah Kerajaan Majapahit"></div>
+    <div><label class="label">Judul video (opsional)</label><input id="g_title" class="input" value="${esc(preset.title || '')}"></div>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-      <div><label class="label">Sudut pandang</label><select id="g_angle" class="input">${opt(ANGLES, 'psychology')}</select></div>
+      <div><label class="label">Sudut pandang</label><select id="g_angle" class="input">${opt(ANGLES, preset.angle || 'psychology')}</select></div>
       <div><label class="label">Gaya tutur</label><select id="g_tone" class="input">${opt(TONES, 'investigative')}</select></div>
     </div>
-    <div><label class="label">Jumlah bagian</label><select id="g_n" class="input"><option value="4">4 (ringkas)</option><option value="5" selected>5</option><option value="6">6</option><option value="7">7 (lengkap)</option></select></div>
-    <div class="rounded-xl bg-brand-950/50 border border-brand-700/40 p-2.5 text-[11px] text-purple-200 space-y-0.5"><p class="font-semibold text-brand-300">Aturan bawaan:</p><p>• Tanpa pembuka klise bot</p><p>• Ada opini kritis, sanggahan, dan penutup ajak diskusi</p><p>• Jeda napas disisipkan otomatis</p></div>`, [
+    <div><label class="label">Durasi target</label><select id="g_min" class="input"><option value="3">±3 menit</option><option value="5" selected>±5 menit</option><option value="8">±8 menit</option></select></div>
+    <div><label class="label">Arahan tambahan (opsional)</label><textarea id="g_notes" rows="2" class="input" placeholder="Mis. fokus pada kasus di Indonesia, hindari istilah teknis"></textarea></div>`, [
     { label: 'Batal' },
-    { label: 'Buat Naskah', cls: 'btn-primary', fn: () => {
+    { label: 'Tulis Naskah', cls: 'btn-primary', fn: () => {
       const topic = val('g_topic').trim(); if (!topic) { toast('Isi topik dulu'); return false; }
-      const apply = () => {
-        const pr = P(); pr.topic = topic;
-        pr.script = genScript({ topic, angle: val('g_angle') || 'psychology', tone: val('g_tone') || 'investigative', sections: val('g_n') });
-        pr.scenes = scenesFromScript(pr.script, S.wpm);
-        save(); scriptTab = 'naskah'; render(); toast('Naskah dibuat — isi bagian {{…}}');
-      };
-      const angle = val('g_angle'), tone = val('g_tone'), n = val('g_n');
-      if (p.script.trim().length > 40) { // konfirmasi sebelum menimpa
-        setTimeout(async () => { if (await confirmSheet('Timpa naskah?', 'Naskah dan storyboard saat ini akan diganti.', 'Timpa', true)) { const pr = P(); pr.topic = topic; pr.script = genScript({ topic, angle, tone, sections: n }); pr.scenes = scenesFromScript(pr.script, S.wpm); save(); scriptTab = 'naskah'; render(); toast('Naskah dibuat — isi bagian {{…}}'); } }, 30);
-      } else apply();
+      const args = { topic, title: val('g_title').trim(), angle: ANGLES[val('g_angle')], tone: TONES[val('g_tone')], minutes: +val('g_min'), notes: val('g_notes').trim() };
+      setTimeout(async () => {
+        if (P().script.trim().length > 40 && !(await confirmSheet('Timpa naskah?', 'Naskah dan storyboard saat ini akan diganti.', 'Timpa', true))) return;
+        try { await writeScript(args); } catch (e) { toast(e.message); }
+      }, 30);
     } }
-  ]);
+  ], { focus: '#g_topic' });
 }
 function projectsSheet() {
   const body = `
-    <div class="space-y-1.5">${S.projects.map((p) => `<button data-act="openProject" data-id="${p.id}" class="w-full text-left p-3 rounded-xl border ${p.id === S.activeId ? 'border-brand-500/60 bg-brand-600/10' : 'border-surface-border bg-surface-darkest'} flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm font-semibold text-white truncate">${esc(p.title || 'Tanpa judul')}</div><div class="text-[10px] text-slate-500">${wordCount(p.script)} kata • diubah ${new Date(p.updatedAt).toLocaleDateString('id-ID')}</div></div>${p.id === S.activeId ? ic('check', 'w-4 h-4 text-brand-400') : ''}</button>`).join('')}</div>
-    <div class="pt-2 border-t border-surface-border space-y-2"><label class="label" for="np_topic">Proyek baru</label><div class="flex gap-2"><input id="np_topic" class="input" placeholder="Topik / judul proyek"><button data-act="newProject" class="btn-primary shrink-0">${ic('plus')} Buat</button></div></div>`;
+    <div class="space-y-1.5">${S.projects.map((p) => `<button data-act="openProject" data-id="${p.id}" class="w-full text-left p-3 rounded-xl border ${p.id === S.activeId ? 'border-brand-500/60 bg-brand-600/15' : 'border-white/10 bg-black/20'} flex items-center justify-between gap-2"><div class="min-w-0"><div class="text-sm font-semibold text-white truncate">${esc(p.title || 'Tanpa judul')}</div><div class="text-[10px] text-slate-500">${wordCount(p.script)} kata • diubah ${new Date(p.updatedAt).toLocaleDateString('id-ID')}</div></div>${p.id === S.activeId ? ic('check', 'w-4 h-4 text-brand-400') : ''}</button>`).join('')}</div>
+    <div class="pt-2 border-t border-white/10 space-y-2"><label class="label" for="np_topic">Proyek baru</label><div class="flex gap-2"><input id="np_topic" class="input" placeholder="Topik / judul proyek"><button data-act="newProject" class="btn-primary shrink-0">${ic('plus')} Buat</button></div></div>`;
   openSheet('Proyek', body, []);
 }
 function menuSheet() {
-  const it = (act, icon, label, sub = '') => `<button data-act="${act}" class="w-full flex items-center gap-3 p-3 rounded-xl bg-surface-darkest border border-surface-border text-left active:bg-surface-highlight"><span class="text-brand-400">${ic(icon, 'w-5 h-5')}</span><span><span class="block text-sm text-white font-medium">${label}</span>${sub ? `<span class="block text-[11px] text-slate-500">${sub}</span>` : ''}</span></button>`;
+  const it = (act, icon, label, sub = '') => `<button data-act="${act}" class="w-full flex items-center gap-3 p-3 rounded-xl bg-black/20 border border-white/10 text-left active:bg-white/10"><span class="text-brand-400">${ic(icon, 'w-5 h-5')}</span><span><span class="block text-sm text-white font-medium">${label}</span>${sub ? `<span class="block text-[11px] text-slate-500">${sub}</span>` : ''}</span></button>`;
   openSheet('Menu', `<div class="space-y-1.5">
+    ${it('projects', 'folder', 'Proyek', `${S.projects.length} proyek • aktif: ${esc(P().title)}`)}
     ${it('exportAll', 'download', 'Cadangkan semua data', 'File JSON — simpan ke Files / iCloud')}
     ${it('importAll', 'upload', 'Pulihkan dari cadangan', 'Gabungkan proyek dari file JSON')}
     ${it('dlScript', 'file-text', 'Unduh naskah (.txt)')}
     ${it('copyScript', 'copy', 'Salin naskah')}
     ${it('dlAssets', 'layers', 'Ekspor daftar aset (CSV)')}
+    ${it('aiStatus', 'sparkles', 'Status AI', 'Cek koneksi Workers AI')}
     ${it('delProject', 'trash-2', 'Hapus proyek ini')}
     ${it('checkUpdate', 'refresh-cw', 'Cek pembaruan', 'Versi ' + APP_VERSION)}
   </div>`, []);
@@ -540,29 +621,32 @@ const slug = (s) => String(s || 'proyek').toLowerCase().replace(/[^a-z0-9]+/g, '
 /* ---------- Aksi ---------- */
 const ACT = {
   mod: (d) => { closeSheet(); switchModule(+d.n); },
+  toStoryTile: () => { scriptTab = 'story'; switchModule(2); },
   projects: () => projectsSheet(),
   menu: () => menuSheet(),
   openProject: (d) => { S.activeId = d.id; save(true); closeSheet(); render(); },
   newProject: () => {
     const t = (val('np_topic') || '').trim(); if (!t) return toast('Isi topik proyek');
-    const p = { id: uid(), title: t, topic: t, script: '', ideas: genIdeas(t), scenes: [], assets: [], lastAudit: null, createdAt: Date.now(), updatedAt: Date.now() };
-    S.projects.unshift(p); S.activeId = p.id; save(true); closeSheet(); switchModule(1); toast('Proyek dibuat');
+    const p = blankProject(t, t); S.projects.unshift(p); S.activeId = p.id; save(true); closeSheet(); switchModule(1); toast('Proyek dibuat');
   },
-  genIdeas: () => {
+  genIdeas: async () => {
     const t = (val('topicIn') || '').trim(); if (!t) return toast('Isi topik dulu');
-    const p = P(); const favs = p.ideas.filter((i) => i.fav).map((i) => i.title);
-    p.topic = t; if (!p.script.trim()) p.title = t;
-    p.ideas = genIdeas(t); save(); render(); toast('15 ide siap'); void favs;
+    if (busy.ideas) return;
+    const p = P(); p.topic = t; if (!p.script.trim()) p.title = t; save();
+    busy.ideas = true; render();
+    try {
+      const d = await ai('ideas', { topic: t });
+      const ideas = normalizeIdeas(d && d.ideas);
+      if (!ideas.length) throw new Error('AI tidak mengembalikan ide, coba lagi.');
+      p.ideas = ideas; ideaFilter = 'all'; save(); toast(ideas.length + ' ide siap');
+    } catch (e) { toast(e.message); }
+    finally { busy.ideas = false; if (mod === 1) render(); }
   },
   ideaFilter: (d) => { ideaFilter = d.f; render(); },
   fav: (d) => { const i = P().ideas.find((x) => x.id === d.id); if (i) { i.fav = !i.fav; save(); render(); } },
-  useIdea: async (d) => {
+  useIdea: (d) => {
     const p = P(); const i = p.ideas.find((x) => x.id === d.id); if (!i) return;
-    if (p.script.trim().length > 40 && !(await confirmSheet('Pakai ide ini?', 'Naskah dan storyboard saat ini akan diganti dengan kerangka baru.', 'Pakai', true))) return;
-    p.title = i.title;
-    p.script = genScript({ topic: p.topic, angle: i.angle, tone: 'investigative', sections: 5 });
-    p.scenes = scenesFromScript(p.script, S.wpm);
-    save(true); scriptTab = 'naskah'; switchModule(2); toast('Ide diterapkan — isi bagian {{…}}');
+    genSheet({ topic: p.topic, title: i.title, angle: i.angle });
   },
   stab: (d) => { scriptTab = d.t; render(); },
   wpm: (d) => { S.wpm = clamp(S.wpm + +d.d, 100, 180); save(); updateScriptMeta(); },
@@ -572,15 +656,42 @@ const ACT = {
     ta.value = v.slice(0, s) + pre + d.tag + '\n' + v.slice(e); const pos = s + pre.length + d.tag.length + 1;
     ta.focus(); ta.setSelectionRange(pos, pos); P().script = ta.value; save(); updateScriptMeta(); toast('Tag ' + d.tag + ' disisipkan');
   },
-  clean: () => {
-    const p = P(); let t = p.script; const before = t;
-    CLEAN_MAP.forEach(([re, rep]) => { t = t.replace(re, rep); });
-    if (t === before) return toast('Tidak ada frasa klise');
-    p.script = t; save(); if (mod === 2) { const ta = $('#scriptInput'); if (ta) ta.value = t; updateScriptMeta(); } else render(); toast('Klise bot dibersihkan');
+  clean: async (d, el) => {
+    const p = P(); if (p.script.trim().length < 30) return toast('Naskah masih terlalu pendek');
+    await withBtn(el, async () => {
+      try {
+        const r = await ai('rewrite', { script: p.script });
+        if (!r.text || r.text.length < p.script.length * 0.5) throw new Error('Hasil AI terlalu pendek, naskah tidak diubah.');
+        p.script = r.text; p.review = null; save(true);
+        if (mod === 2) { const ta = $('#scriptInput'); if (ta) ta.value = r.text; updateScriptMeta(); } else render();
+        toast('Naskah dipoles AI');
+      } catch (e) { toast(e.message); }
+    });
   },
-  tipAct: (d) => {
-    if (d.a === 'clean') return ACT.clean();
+  tipAct: (d, el) => {
+    if (d.a === 'clean') return ACT.clean(d, el);
     if (d.a.startsWith('tag:')) { const p = P(); p.script = p.script.replace(/\s*$/, '') + '\n\n' + d.a.slice(4) + '\n'; save(); render(); toast('Tag ditambahkan di akhir naskah — pindahkan ke posisi yang pas'); }
+  },
+  review: async () => {
+    const p = P(); if (p.script.trim().length < 60) return toast('Naskah terlalu pendek untuk direview');
+    if (busy.review) return;
+    busy.review = true; render();
+    try {
+      const an = analyze(p.script, S.wpm);
+      const data = await ai('review', { script: p.script, metrics: metricsLine(an) });
+      if (!data || typeof data.summary !== 'string') throw new Error('Format review tidak valid, coba lagi.');
+      p.review = { at: Date.now(), data: { summary: data.summary, strengths: (data.strengths || []).map(String).slice(0, 3), issues: (data.issues || []).slice(0, 5).map((x) => ({ quote: String(x.quote || ''), problem: String(x.problem || ''), fix: String(x.fix || '') })), hook_alternatives: (data.hook_alternatives || []).map(String).slice(0, 3) } };
+      save(true); toast('Review selesai');
+    } catch (e) { toast(e.message); }
+    finally { busy.review = false; if (mod === 3) render(); }
+  },
+  applyFix: (d) => {
+    const p = P(); const it = p.review && p.review.data.issues[+d.n]; if (!it || !it.quote || !p.script.includes(it.quote)) return toast('Kutipan tidak ditemukan di naskah');
+    p.script = p.script.replace(it.quote, it.fix); it.quote = ''; save(true); render(); toast('Perbaikan diterapkan');
+  },
+  useHook: (d) => {
+    const p = P(); const h = p.review && p.review.data.hook_alternatives[+d.n]; if (!h) return;
+    p.script = replaceHookLine(p.script, h); save(true); render(); toast('Hook diganti');
   },
   gen: () => genSheet(),
   copyScript: async () => { closeSheet(); toast((await copyText(P().script)) ? 'Naskah disalin' : 'Gagal menyalin'); },
@@ -588,7 +699,12 @@ const ACT = {
   scenesFromScript: async () => {
     const p = P(); if (!p.script.trim()) return toast('Naskah masih kosong');
     if (p.scenes.length && !(await confirmSheet('Buat ulang storyboard?', 'Scene yang ada akan diganti dengan hasil dari naskah.', 'Buat ulang', true))) return;
-    p.scenes = scenesFromScript(p.script, S.wpm); save(); render(); toast(p.scenes.length + ' scene dibuat');
+    p.scenes = scenesFromScript(p.script, S.wpm); save(true); render(); toast(p.scenes.length + ' scene dibuat — minta AI merancang visualnya');
+  },
+  sceneAI: async () => {
+    const p = P(); const missing = p.scenes.some((s) => !s.visual);
+    if (!missing && !(await confirmSheet('Buat ulang visual?', 'Semua visual, audio, dan gerak kamera akan ditulis ulang oleh AI.', 'Buat ulang', true))) return;
+    fillScenes(p, !missing);
   },
   sceneAdd: () => sceneSheet(null),
   sceneEdit: (d) => sceneSheet(P().scenes.find((s) => s.id === d.id)),
@@ -599,7 +715,11 @@ const ACT = {
   assetEdit: (d) => assetSheet(P().assets.find((a) => a.id === d.id)),
   assetDel: async (d) => { if (await confirmSheet('Hapus aset?', 'Aset ini akan dihapus dari daftar audit.', 'Hapus', true)) { const p = P(); p.assets = p.assets.filter((a) => a.id !== d.id); save(); render(); } },
   audit: () => { const p = P(); p.lastAudit = finalAudit(p, S.wpm); save(); render4(); toast('Audit selesai: ' + p.lastAudit.status); },
-  exportAll: async () => { closeSheet(); await saveFile(`yt-hunter-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json', JSON.stringify({ app: 'yt-hunter', v: 1, exportedAt: new Date().toISOString(), data: S }, null, 2)); },
+  aiStatus: async () => {
+    closeSheet();
+    try { const r = await fetch('/api/health', { cache: 'no-store' }); const j = await r.json(); toast(j.ai ? 'AI aktif ✓ (Workers AI)' : 'Binding AI belum aktif di Worker'); } catch (e) { toast('Endpoint AI tidak terjangkau'); }
+  },
+  exportAll: async () => { closeSheet(); await saveFile(`yt-hunter-backup-${new Date().toISOString().slice(0, 10)}.json`, 'application/json', JSON.stringify({ app: 'yt-hunter', v: 2, exportedAt: new Date().toISOString(), data: S }, null, 2)); },
   importAll: () => { closeSheet(); $('#importFile').value = ''; $('#importFile').click(); },
   dlScript: async () => { closeSheet(); await saveFile(slug(P().title) + '.txt', 'text/plain', P().script); },
   dlAssets: async () => {
@@ -625,19 +745,18 @@ $('#importFile').addEventListener('change', async (e) => {
     if (!d || !Array.isArray(d.projects)) throw new Error('format');
     const ok = await confirmSheet('Pulihkan cadangan?', `${d.projects.length} proyek akan digabung. Proyek dengan ID sama akan ditimpa.`, 'Pulihkan');
     if (!ok) return;
-    d.projects.forEach((p) => { const i = S.projects.findIndex((x) => x.id === p.id); if (i >= 0) S.projects[i] = p; else S.projects.push(p); });
+    d.projects.forEach((p) => { p.ideas = (p.ideas || []).filter((i) => i.ai); const i = S.projects.findIndex((x) => x.id === p.id); if (i >= 0) S.projects[i] = p; else S.projects.push(p); });
     save(true); render(); toast('Cadangan dipulihkan');
   } catch (err) { toast('File cadangan tidak valid'); }
 });
 
 /* ---------- PWA ---------- */
 function showUpdate(worker) {
-  const bar = $('#updateBar'); bar.classList.remove('hidden'); bar.classList.add('flex'); $('#appHeader').style.paddingTop = '.5rem';
+  const bar = $('#updateBar'); bar.classList.remove('hidden'); bar.classList.add('flex');
   $('#btnUpdate').onclick = () => { save(true); worker.postMessage({ type: 'SKIP_WAITING' }); $('#btnUpdate').textContent = 'Memperbarui…'; };
 }
 function initPWA() {
-  const online = () => $('#offlineBadge').classList.toggle('hidden', navigator.onLine);
-  addEventListener('online', online); addEventListener('offline', online); online();
+  addEventListener('online', () => toast('Kembali online')); addEventListener('offline', () => toast('Offline — fitur AI dinonaktifkan sementara'));
   if (!('serviceWorker' in navigator) || !/^https?:$/.test(location.protocol)) return;
   const hadController = !!navigator.serviceWorker.controller;
   navigator.serviceWorker.register('sw.js').then((reg) => {
@@ -645,7 +764,7 @@ function initPWA() {
     reg.addEventListener('updatefound', () => { const nw = reg.installing; if (nw) nw.addEventListener('statechange', () => { if (nw.state === 'installed' && navigator.serviceWorker.controller) showUpdate(nw); }); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update().catch(() => {}); });
     setInterval(() => reg.update().catch(() => {}), 60 * 60 * 1000);
-  }).catch((e) => { window._swErr = String(e && e.message || e); });
+  }).catch((e) => { window._swErr = String((e && e.message) || e); });
   let reloading = false;
   navigator.serviceWorker.addEventListener('controllerchange', () => { if (!hadController || reloading) return; reloading = true; location.reload(); });
   if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
@@ -656,4 +775,4 @@ addEventListener('pagehide', () => save(true));
 /* ---------- Init ---------- */
 load();
 initPWA();
-switchModule(2);
+switchModule(1);
